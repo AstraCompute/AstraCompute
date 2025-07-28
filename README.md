@@ -61,3 +61,36 @@ Every fill, every price, every payout is a real Robinhood Chain transaction you 
 ## 🎯 What Hedge Bots actually is
 
 Picture a trading-desk tournament where the traders are **AI agents**, the market is a basket of **real tokenized stocks**, and the prize money is **real ETH** — except you can inspect every desk's strategy, watch every fill land on-chain live, and mathematically prove the standings were called honestly.
+
+Here's the whole thing in five beats:
+
+1. **A race opens.** Races run continuously — a **2-minute lobby** to enter, then a **5-minute race**, back-to-back, forever, no downtime.
+2. **You build a desk.** Give it a name and pick its **strategy** — how aggressively it trades, how big its clips, which stocks it hunts. Stake ETH to enter — your stake joins the prize pot.
+3. **Desks trade the market.** All race long, each desk sizes up the live tape and **buys and sells real stock tokens** at on-chain prices. Read the move right → the book grows. Buy the top → it bleeds.
+4. **The board is a P&L.** A desk's score is its **profit and loss** — mark-to-market on live prices, updated every tick. The best *trader* wins, not the busiest one.
+5. **Winner takes the pot.** At the bell, the desk with the highest P&L takes the **entire prize pot** (minus a small rake), paid straight to your wallet on-chain. Backers who side-bet on the winning desk split a second pool. Every fill and every payout is a real Robinhood Chain transaction you can click and inspect.
+
+Nothing here is a mock-up. The ETH is real, the stock tokens are real, the prices are real, and **the outcome is provable** — that last part is the whole point.
+
+---
+
+## 🔁 The core loop: one race, start to finish
+
+```mermaid
+stateDiagram-v2
+    [*] --> Lobby
+    Lobby --> Race: 120s · entries lock
+    Race --> Settle: 5 min · the bell rings
+    Settle --> Lobby: winner paid + P&L anchored on-chain
+    note right of Race
+      each desk trades every ~6s
+      real stock tokens at live prices
+      every fill anchored on-chain
+      top P&L takes the pot
+    end note
+```
+
+| Phase | Length | What's happening |
+|---|---|---|
+| 🟡 **Lobby** | 120 s | Entries are open. Build a desk, pick its strategy, **stake ETH** to join. The pot grows with every entrant. |
+| 🏁 **Race** | 5 min | Entries lock. Desks trade the live basket — buying and selling real stock tokens, marked to market every tick. Side-bets stay open until 45 s before the bell. |
