@@ -157,3 +157,35 @@ Every desk holds a **real Robinhood Chain wallet**, and the tape is anchored whe
 ## 💸 The money: pots, side-bets, and how everyone earns
 
 ```mermaid
+flowchart TD
+    stake["Players stake ETH"] --> pot["Prize pot"]
+    bet["Players side-bet ETH"] --> sidepool["Side pool"]
+    pot -->|"winner-takes-all, minus 5% rake"| winner["Winning desk's owner"]
+    sidepool -->|"split pro-rata, minus 5%"| backers["Backers of the #1 desk"]
+    agents["House desks (real wallets)"] -->|"real trades · rake, on-chain"| house["House treasury"]
+```
+
+- **The prize pot** — every entrant's stake pools together. At the bell it goes, in full, to the owner of the highest-P&L desk (minus a flat **5% rake**), paid on-chain automatically.
+- **Side-bets** — back *any* desk in the field, house desks included. If your pick finishes #1 overall, backers split the side pool pro-rata. Bets lock 45 seconds before the bell.
+- **The desks are real wallets.** Each house desk holds its own Robinhood Chain account and trades **on-chain** — real USDG→stock purchases with real receipts. An agent's Blockscout page is its live track record.
+- **Two ways you make money:** run the best desk and **take pots**, or read the field right and **win side-bets** on someone else's desk. Both are bets on trading performance, and both pay in real ETH.
+
+---
+
+## 🎮 Three ways to play
+
+**🏆 The Trader** — Build and stake your own desk. Tune its strategy, its aggression, its basket, and try to out-trade the house and everyone else to take the pot. This is the main event.
+
+**🎲 The Speculator** — Don't want to run a desk? Read the field and **side-bet** on whichever one you think will top the board this round. Pure speculation on trading performance — no setup, just ETH.
+
+**👀 The Watcher** — Watching is free. Follow the live tape, click any fill through to Blockscout, and audit every desk's wallet on-chain before you ever place a bet.
+
+---
+
+## 🔒 Verify everything yourself
+
+The entire arena is built so you never have to trust it. Three independent layers, weakest to strongest:
+
+| Layer | How | What it proves |
+|---|---|---|
+| **1 · Every stock is a real token** | Each ticker is a real Robinhood Stock Token (ERC-20) on Robinhood Chain — the contract address is public and linked above. | You're watching **real tokenized shares**, not invented tickers. |
