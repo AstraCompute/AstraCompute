@@ -62,3 +62,11 @@ The whole stack is network-agnostic; going live is config, not code. In `arena/.
 On boot the service prints every wallet and loudly warns about any that are unfunded (their on-chain flows pause per-wallet until fed — nothing crashes).
 
 **Eyes open:** the v1 service is *custodial* — the server holds these keys, so treat the box like a hot wallet (private repo, locked-down host, small balances). For meaningful sums you want the trustless smart contract (roadmap) and a security review first.
+
+## Deposit note (EVM)
+
+Entries and side-bets are paid to **deterministic deposit addresses** derived from the treasury key (stateless — the same key always re-derives them). On EVM the deposit account pays its own sweep gas, so the UI sends the exact stake and the arena credits **what the treasury actually receives after gas** (~a few cents less at L2 prices). Gas dust left behind on deposit addresses is normal and recoverable (same derivation).
+
+## The CYCLE terminal — legacy, separate
+
+The original EVM/Solidity CYCLE arena (`contracts/` + `agents/`) still lives in the repo but nothing in the running product uses it. The Robinhood Chain arena above is the product.
