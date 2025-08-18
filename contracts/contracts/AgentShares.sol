@@ -168,3 +168,58 @@ contract AgentShares is Ownable, ReentrancyGuard {
 
         _settle(agentId, msg.sender);
         sharesBalance[agentId][msg.sender] -= amount;
+        sharesSupply[agentId] = supply - amount;
+        _rewardDebt[agentId][msg.sender] =
+            (sharesBalance[agentId][msg.sender] * accDividendPerShare[agentId]) / PRECISION;
+        reserveOf[agentId] -= price;
+
+        require(cycle.transfer(msg.sender, price - protocolFee - subjectFee), "shares: payout failed");
+        if (protocolFee > 0) {
+            vault.notifyFee(protocolFee);
+            totalFeesRouted += protocolFee;
+        }
+        if (subjectFee > 0) {
+            require(cycle.transfer(registry.agentWallet(agentId), subjectFee), "shares: subject fee failed");
+        }
+        emit Trade(agentId, msg.sender, false, amount, price, protocolFee, subjectFee, supply - amount);
+    }
+
+    // ------------------------------------------------------------ dividends
+
+    /// @notice Pull `amount` CYCLE from the caller and stream it pro-rata to
+    /// the agent's shareholders. Returns false (pulling nothing) when the
+    /// agent has no share supply - callers then keep the funds.
+    function depositDividend(uint64 agentId, uint256 amount) external nonReentrant returns (bool) {
+        uint256 supply = sharesSupply[agentId];
+        if (supply == 0 || amount == 0) return false;
+        require(cycle.transferFrom(msg.sender, address(this), amount), "shares: pull failed");
+        accDividendPerShare[agentId] += (amount * PRECISION) / supply;
+        totalDividends[agentId] += amount;
+        emit DividendDeposited(agentId, msg.sender, amount);
+        return true;
+    }
+
+    function claimDividends(uint64 agentId) external nonReentrant returns (uint256 amount) {
+        _settle(agentId, msg.sender);
+        amount = _owed[agentId][msg.sender];
+        require(amount > 0, "shares: nothing owed");
+        _owed[agentId][msg.sender] = 0;
+        require(cycle.transfer(msg.sender, amount), "shares: transfer failed");
+        emit DividendsClaimed(agentId, msg.sender, amount);
+    }
+
+    function pendingDividends(uint64 agentId, address holder) external view returns (uint256) {
+        return _owed[agentId][holder]
+            + (sharesBalance[agentId][holder] * accDividendPerShare[agentId]) / PRECISION
+            - _rewardDebt[agentId][holder];
+    }
+
+    function _settle(uint64 agentId, address holder) private {
+        uint256 bal = sharesBalance[agentId][holder];
+        if (bal > 0) {
+            uint256 accrued = (bal * accDividendPerShare[agentId]) / PRECISION - _rewardDebt[agentId][holder];
+            if (accrued > 0) _owed[agentId][holder] += accrued;
+        }
+        _rewardDebt[agentId][holder] = (bal * accDividendPerShare[agentId]) / PRECISION;
+    }
+}
