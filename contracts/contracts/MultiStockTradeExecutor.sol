@@ -111,3 +111,58 @@ contract MultiStockTradeExecutor {
             amountIn: uint128(usdgIn),
             amountOutMinimum: uint128(minStockOut)
         });
+
+        bytes[] memory actionParams = new bytes[](3);
+        actionParams[0] = abi.encode(swap);
+        actionParams[1] = abi.encode(USDG, usdgIn, true);
+        actionParams[2] = abi.encode(stockToken, address(this), 0);
+
+        bytes[] memory inputs = new bytes[](1);
+        inputs[0] = abi.encode(hex"070b0e", actionParams); // SWAP_EXACT_IN, SETTLE, TAKE
+        IUniversalRouterMultiStock(UNIVERSAL_ROUTER).execute(hex"10", inputs, deadline);
+
+        received = IERC20MultiStock(stockToken).balanceOf(address(this)) - beforeBalance;
+        if (received < minStockOut) revert InsufficientOutput(received, minStockOut);
+        _safeTransfer(stockToken, msg.sender, received);
+
+        entered = false;
+        emit StockPurchased(msg.sender, symbol, stockToken, usdgIn, received);
+    }
+
+    function isSupported(address token) public pure returns (bool) {
+        return token == NVDA || token == TSLA || token == AAPL || token == MSFT
+            || token == SPY || token == META || token == GOOGL;
+    }
+
+    function symbolOf(address token) public pure returns (string memory) {
+        if (token == NVDA) return "NVDA";
+        if (token == TSLA) return "TSLA";
+        if (token == AAPL) return "AAPL";
+        if (token == MSFT) return "MSFT";
+        if (token == SPY) return "SPY";
+        if (token == META) return "META";
+        if (token == GOOGL) return "GOOGL";
+        revert UnsupportedStock(token);
+    }
+
+    function _safeApprove(address token, address spender, uint256 amount) private {
+        (bool ok, bytes memory data) = token.call(
+            abi.encodeCall(IERC20MultiStock.approve, (spender, amount))
+        );
+        if (!ok || (data.length != 0 && !abi.decode(data, (bool)))) revert TokenCallFailed();
+    }
+
+    function _safeTransfer(address token, address to, uint256 amount) private {
+        (bool ok, bytes memory data) = token.call(
+            abi.encodeCall(IERC20MultiStock.transfer, (to, amount))
+        );
+        if (!ok || (data.length != 0 && !abi.decode(data, (bool)))) revert TokenCallFailed();
+    }
+
+    function _safeTransferFrom(address token, address from, address to, uint256 amount) private {
+        (bool ok, bytes memory data) = token.call(
+            abi.encodeCall(IERC20MultiStock.transferFrom, (from, to, amount))
+        );
+        if (!ok || (data.length != 0 && !abi.decode(data, (bool)))) revert TokenCallFailed();
+    }
+}
