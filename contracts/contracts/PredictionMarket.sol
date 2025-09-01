@@ -166,3 +166,58 @@ contract PredictionMarket is Ownable, ReentrancyGuard {
 
         if (m.voided) {
             for (uint256 i = 0; i < m.candidates.length; i++) {
+                payout += betOf[marketId][msg.sender][m.candidates[i]];
+            }
+        } else {
+            uint256 winningStake = 0;
+            for (uint256 i = 0; i < m.winners.length; i++) {
+                winningStake += betOf[marketId][msg.sender][m.winners[i]];
+            }
+            if (winningStake > 0) {
+                payout = ((m.totalPool - m.feeTaken) * winningStake) / m.winnersPool;
+            }
+        }
+
+        require(payout > 0, "predict: nothing to claim");
+        require(cycle.transfer(msg.sender, payout), "predict: transfer failed");
+        emit Claimed(marketId, msg.sender, payout);
+    }
+
+    // ----------------------------------------------------------------- views
+
+    function getMarket(uint64 marketId) external view returns (Market memory) {
+        require(_markets[marketId].id != 0, "predict: no market");
+        return _markets[marketId];
+    }
+
+    function getMarkets(uint64 offset, uint64 limit) external view returns (Market[] memory out) {
+        if (offset >= marketCount) return new Market[](0);
+        uint64 end = offset + limit;
+        if (end > marketCount) end = marketCount;
+        out = new Market[](end - offset);
+        for (uint64 i = offset; i < end; i++) {
+            out[i - offset] = _markets[i + 1];
+        }
+    }
+
+    function getPools(uint64 marketId)
+        external
+        view
+        returns (uint64[] memory candidates, uint256[] memory amounts)
+    {
+        Market storage m = _markets[marketId];
+        require(m.id != 0, "predict: no market");
+        candidates = m.candidates;
+        amounts = new uint256[](candidates.length);
+        for (uint256 i = 0; i < candidates.length; i++) {
+            amounts[i] = poolOf[marketId][candidates[i]];
+        }
+    }
+
+    function _isCandidate(Market storage m, uint64 agentId) private view returns (bool) {
+        for (uint256 i = 0; i < m.candidates.length; i++) {
+            if (m.candidates[i] == agentId) return true;
+        }
+        return false;
+    }
+}
