@@ -97,3 +97,102 @@ contract TaskMarketplace is Ownable, ReentrancyGuard {
         IAgentRegistryMin _registry,
         IAgentSharesMin _shares,
         IStakingVaultMin _vault
+    ) Ownable(msg.sender) {
+        cycle = _cycle;
+        registry = _registry;
+        shares = _shares;
+        vault = _vault;
+        // vault + shares pull fees/dividends from this contract
+        _cycle.approve(address(_vault), type(uint256).max);
+        _cycle.approve(address(_shares), type(uint256).max);
+    }
+
+    // ---------------------------------------------------------------- admin
+
+    function setParams(
+        uint256 _minReward,
+        uint16 _bondBps,
+        uint16 _feeBps,
+        uint16 _dividendBps,
+        uint32 _reviewWindow
+    ) external onlyOwner {
+        require(_bondBps <= 5000 && _feeBps + _dividendBps <= 5000, "market: bps too high");
+        require(_reviewWindow >= 10, "market: review too short");
+        minReward = _minReward;
+        bondBps = _bondBps;
+        feeBps = _feeBps;
+        dividendBps = _dividendBps;
+        reviewWindow = _reviewWindow;
+    }
+
+    // -------------------------------------------------------------- posting
+
+    function postTask(
+        string calldata spec,
+        string calldata tags,
+        uint256 reward,
+        uint32 biddingWindow,
+        uint32 execWindow
+    ) external nonReentrant returns (uint64 taskId) {
+        require(reward >= minReward, "market: reward too low");
+        require(biddingWindow >= 5 && biddingWindow <= 7 days, "market: bad bid window");
+        require(execWindow >= 10 && execWindow <= 30 days, "market: bad exec window");
+        require(bytes(spec).length > 0, "market: empty spec");
+
+        require(cycle.transferFrom(msg.sender, address(this), reward), "market: escrow failed");
+
+        taskId = ++taskCount;
+        Task storage t = _tasks[taskId];
+        t.id = taskId;
+        t.poster = msg.sender;
+        t.reward = reward;
+        t.agentBond = (reward * bondBps) / 10_000;
+        t.createdAt = uint64(block.timestamp);
+        t.biddingEnds = uint64(block.timestamp) + biddingWindow;
+        t.execWindow = execWindow;
+        t.status = TaskStatus.Open;
+        t.spec = spec;
+        t.tags = tags;
+
+        _openTaskIds.push(taskId);
+        _openIndex[taskId] = _openTaskIds.length;
+
+        emit TaskPosted(taskId, msg.sender, reward, t.biddingEnds, execWindow, spec, tags);
+    }
+
+    /// @notice Poster may withdraw an unassigned task; escrow returns in full.
+    function cancelTask(uint64 taskId) external nonReentrant {
+        Task storage t = _tasks[taskId];
+        require(t.id != 0, "market: no task");
+        require(msg.sender == t.poster, "market: not poster");
+        require(t.status == TaskStatus.Open, "market: not open");
+        t.status = TaskStatus.Cancelled;
+        _removeOpen(taskId);
+        require(cycle.transfer(t.poster, t.reward), "market: refund failed");
+        emit TaskCancelled(taskId);
+    }
+
+    // -------------------------------------------------------------- bidding
+
+    /// @notice Called by an agent's wallet. Bid = the CYCLE the agent will
+    /// accept for the job; must not exceed the escrowed reward.
+    function bid(uint64 taskId, uint256 amount) external {
+        Task storage t = _tasks[taskId];
+        require(t.id != 0, "market: no task");
+        require(t.status == TaskStatus.Open, "market: not open");
+        require(block.timestamp < t.biddingEnds, "market: bidding over");
+        require(amount > 0 && amount <= t.reward, "market: bad bid");
+        require(_bids[taskId].length < MAX_BIDS, "market: bid book full");
+
+        uint64 agentId = registry.walletToAgentId(msg.sender);
+        require(agentId != 0, "market: not an agent");
+        require(registry.isActive(agentId), "market: agent inactive");
+
+        _bids[taskId].push(Bid({agentId: agentId, amount: amount, at: uint64(block.timestamp), voided: false}));
+        emit BidPlaced(taskId, agentId, amount);
+    }
+
+    /// @notice Anyone may finalize after the bidding window: the lowest bid
+    /// wins (earliest wins ties). The winner's bond is pulled here; if the
+    /// pull fails (no funds/allowance) the bid is voided and the next-best
+    /// wins. No valid bids -> task cancelled, poster refunded.
