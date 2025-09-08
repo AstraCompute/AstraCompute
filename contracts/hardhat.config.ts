@@ -28,3 +28,32 @@ const config: HardhatUserConfig = {
     },
     localhost: {
       url: "http://127.0.0.1:8545",
+      chainId: 31337,
+    },
+    baseSepolia: {
+      url: process.env.BASE_SEPOLIA_RPC || "https://sepolia.base.org",
+      chainId: 84532,
+      accounts: DEPLOYER_KEY ? [DEPLOYER_KEY] : [],
+    },
+    robinhood: {
+      url: "https://rpc.mainnet.chain.robinhood.com",
+      chainId: 4663,
+      accounts: [],
+    },
+  },
+  etherscan: {
+    apiKey: { robinhood: "blockscout" },
+    customChains: [{
+      network: "robinhood",
+      chainId: 4663,
+      urls: {
+        apiURL: "https://robinhoodchain.blockscout.com/api",
+        browserURL: "https://robinhoodchain.blockscout.com",
+      },
+    }],
+  },
+  sourcify: { enabled: true },
+  mocha: { timeout: 120000 },
+};
+
+export default config;
