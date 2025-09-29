@@ -39,3 +39,23 @@ async function main() {
   if (!deployer) throw new Error("no deployer - set DEPLOYER_KEY in contracts/.env for public networks");
   console.log(`Deploying AGORA to ${network.name} from ${deployer.address}`);
   if (!isLocal) {
+    const bal = await ethers.provider.getBalance(deployer.address);
+    console.log(`  deployer gas balance: ${ethers.formatEther(bal)} ETH`);
+    if (bal < ethers.parseEther("0.05")) {
+      console.warn("  WARNING: low gas. Grab Base Sepolia ETH from a faucet before deploying.");
+    }
+  }
+
+  // actor addresses: local = hardhat signers; public = derived from SWARM_MNEMONIC
+  const mnemonic = isLocal ? HARDHAT_MNEMONIC : process.env.SWARM_MNEMONIC;
+  if (!isLocal && !mnemonic) {
+    throw new Error("set SWARM_MNEMONIC in contracts/.env (any fresh 12-word phrase) for public deploys");
+  }
+  const actorAddress = (i: number) =>
+    ethers.HDNodeWallet.fromPhrase(mnemonic!, undefined, `m/44'/60'/0'/0/${i}`).address;
+
+  const cycle = await (await ethers.getContractFactory("CycleToken")).deploy();
+  await cycle.waitForDeployment();
+  const registry = await (await ethers.getContractFactory("AgentRegistry")).deploy(
+    cycle, EPOCH_DURATION, MIN_AGENT_STAKE
+  );
