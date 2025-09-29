@@ -19,3 +19,23 @@ const REVIEW_WINDOW = 45; // seconds before silent posters auto-approve
 const MINTS: Array<[number, bigint]> = [
   [1, E(2_000_000)],
   [2, E(100_000)], [3, E(100_000)],
+  [4, E(5_000)], [5, E(5_000)], [6, E(5_000)], [7, E(5_000)], [8, E(5_000)], [9, E(5_000)],
+  [10, E(50_000)], [11, E(50_000)], [12, E(50_000)],
+  [15, E(100_000)],
+];
+const FAUCET_SUPPLY = E(10_000_000); // visitor play-chips (5,000 per claim)
+const GAS_PER_ACTOR = ethers.parseEther("0.002"); // public nets: swarm gas
+
+const CONTRACT_NAMES = [
+  "CycleToken", "AgentRegistry", "StakingVault", "AgentShares",
+  "TaskMarketplace", "ComputeMarket", "PredictionMarket", "CycleFaucet",
+] as const;
+
+const HARDHAT_MNEMONIC = "test test test test test test test test test test test junk";
+
+async function main() {
+  const isLocal = network.name === "hardhat" || network.name === "localhost";
+  const [deployer] = await ethers.getSigners();
+  if (!deployer) throw new Error("no deployer - set DEPLOYER_KEY in contracts/.env for public networks");
+  console.log(`Deploying AGORA to ${network.name} from ${deployer.address}`);
+  if (!isLocal) {
