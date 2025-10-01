@@ -119,3 +119,23 @@ async function main() {
   const addresses: Record<string, unknown> = {
     network: network.name,
     chainId: network.config.chainId ?? 31337,
+    rpcUrl,
+    explorer: isLocal ? "" : "https://sepolia.basescan.org",
+    epochGenesis: Number(await registry.epochGenesis()),
+    epochDuration: EPOCH_DURATION,
+    minAgentStake: MIN_AGENT_STAKE.toString(),
+    minProviderStake: MIN_PROVIDER_STAKE.toString(),
+    deployedAt: new Date().toISOString(),
+  };
+  for (const name of CONTRACT_NAMES) {
+    addresses[name] = await (instances as any)[name].getAddress();
+    console.log(`  ${name.padEnd(18)} ${addresses[name]}`);
+  }
+
+  // ---- export addresses + ABIs everywhere they are consumed -----------------
+  const root = path.join(__dirname, "..", "..");
+  const outDirs = [
+    path.join(root, "deployments"),
+    path.join(root, "agents", "src", "generated"),
+    path.join(root, "web", "src", "generated"),
+  ];
