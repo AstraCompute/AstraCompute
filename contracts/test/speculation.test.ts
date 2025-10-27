@@ -60,3 +60,64 @@ describe("AgentShares", () => {
   it("streams dividends pro-rata to holders at deposit time", async () => {
     const f = await loadFixture(deployProtocol);
     await registerAgent(f.registry, f.agentOwner, f.agentWallet1);
+    await f.shares.connect(f.speculator1).buyShares(1, 3); // holders: owner 1, spec1 3 (supply 4)
+
+    await f.shares.connect(f.poster).depositDividend(1, E(8)); // anyone can fund dividends
+    expect(await f.shares.pendingDividends(1, f.speculator1.address)).to.equal(E(6));
+    expect(await f.shares.pendingDividends(1, f.agentOwner.address)).to.equal(E(2));
+
+    // late buyer earns nothing from past dividends
+    await f.shares.connect(f.speculator2).buyShares(1, 4);
+    expect(await f.shares.pendingDividends(1, f.speculator2.address)).to.equal(0n);
+
+    const before = await f.cycle.balanceOf(f.speculator1.address);
+    await f.shares.connect(f.speculator1).claimDividends(1);
+    expect(await f.cycle.balanceOf(f.speculator1.address)).to.equal(before + E(6));
+    await expect(f.shares.connect(f.speculator1).claimDividends(1)).to.be.revertedWith("shares: nothing owed");
+
+    // selling after a deposit keeps already-earned dividends
+    await f.shares.connect(f.poster).depositDividend(1, E(16)); // supply 8: spec1 3/8 = 6, spec2 4/8 = 8
+    await f.shares.connect(f.speculator1).sellShares(1, 3);
+    expect(await f.shares.pendingDividends(1, f.speculator1.address)).to.equal(E(6));
+  });
+});
+
+describe("PredictionMarket", () => {
+  async function setupRace(f: any) {
+    await registerAgent(f.registry, f.agentOwner, f.agentWallet1, "Alpha");
+    await registerAgent(f.registry, f.agentOwner, f.agentWallet2, "Beta");
+    await registerAgent(f.registry, f.agentOwner, f.agentWallet3, "Gamma");
+    await f.registry.setMarket(f.deployer.address, true); // deployer writes earnings directly
+    const epoch = await f.registry.currentEpoch();
+    await f.predict.createMarket(epoch, [1, 2, 3]);
+    return epoch;
+  }
+
+  it("validates market creation", async () => {
+    const f = await loadFixture(deployProtocol);
+    await registerAgent(f.registry, f.agentOwner, f.agentWallet1);
+    await registerAgent(f.registry, f.agentOwner, f.agentWallet2);
+    const epoch = await f.registry.currentEpoch();
+    await expect(f.predict.createMarket(epoch, [1])).to.be.revertedWith("predict: 2-8 candidates");
+    await expect(f.predict.createMarket(epoch, [1, 1])).to.be.revertedWith("predict: duplicate");
+    await expect(f.predict.createMarket(epoch, [1, 99])).to.be.revertedWith("predict: unknown agent");
+    await time.increase(EPOCH_DURATION);
+    await expect(f.predict.createMarket(epoch, [1, 2])).to.be.revertedWith("predict: epoch past");
+  });
+
+  it("runs a full parimutuel cycle with trustless resolution from the earnings ledger", async () => {
+    const f = await loadFixture(deployProtocol);
+    const epoch = await setupRace(f);
+
+    await f.predict.connect(f.speculator1).bet(1, 1, E(100)); // backs Alpha
+    await f.predict.connect(f.speculator2).bet(1, 2, E(300)); // backs Beta
+    await f.predict.connect(f.poster).bet(1, 1, E(100));      // backs Alpha
+    await expect(f.predict.connect(f.poster).bet(1, 99, E(10))).to.be.revertedWith("predict: not a candidate");
+    await expect(f.predict.connect(f.poster).bet(1, 1, E(0.5))).to.be.revertedWith("predict: below min");
+
+    // Alpha out-earns Beta in this epoch
+    await f.registry.recordTaskOutcome(1, E(500), true);
+    await f.registry.recordTaskOutcome(2, E(200), true);
+
+    await expect(f.predict.resolve(1)).to.be.revertedWith("predict: epoch live");
+    await time.increase(EPOCH_DURATION);
