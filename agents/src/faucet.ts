@@ -196,3 +196,67 @@ export class MarketMaker {
       const e: bigint = await this.c.registry.epochEarnings(epoch, cand);
       weights.push(Number(e / E(1)) + 5 + Math.random() * 40);
     }
+    const total = weights.reduce((a, b) => a + b, 0);
+    let roll = Math.random() * total;
+    let chosen = m.candidates[0];
+    for (let i = 0; i < weights.length; i++) {
+      roll -= weights[i];
+      if (roll <= 0) { chosen = m.candidates[i]; break; }
+    }
+    const amount = E(20 + Math.floor(Math.random() * 180));
+    if (await tryTx(() => spec.c.predict.bet(marketId, chosen, amount))) {
+      const name = (await this.c.registry.getAgent(chosen)).name;
+      this.log(`${spec.name} bet ${fmt(amount)} CYCLE on "${name}" in market #${marketId}`);
+    }
+  }
+
+  private async resolveOldMarkets(epoch: bigint): Promise<void> {
+    for (const [epochKey, marketId] of [...this.marketForEpoch]) {
+      if (BigInt(epochKey) >= epoch) continue;
+      const m = await this.c.predict.getMarket(marketId);
+      if (!m.resolved) {
+        if (await tryTx(() => this.c.predict.resolve(marketId))) {
+          const updated = await this.c.predict.getMarket(marketId);
+          if (updated.voided) {
+            this.log(`market #${marketId} voided (no earnings or unbacked winner) - refunds open`);
+          } else {
+            const winner = (await this.c.registry.getAgent(updated.winners[0])).name;
+            this.log(paint.bold(`market #${marketId} RESOLVED: "${winner}" won epoch ${epochKey} - pool ${fmt(updated.totalPool)} CYCLE`));
+          }
+        }
+      } else {
+        for (const s of this.speculators) {
+          await tryTx(() => s.c.predict.claim(marketId)); // losers revert harmlessly
+        }
+        this.marketForEpoch.delete(epochKey);
+      }
+    }
+  }
+
+  /** Momentum trading on agent shares: buy leaders, occasionally take profit. */
+  private async tradeShares(): Promise<void> {
+    if (Math.random() > 0.4) return;
+    const agents = await this.c.registry.getAgents(0, 50);
+    if (agents.length === 0) return;
+    const ranked = [...agents].sort((a: any, b: any) => (b.lifetimeEarnings > a.lifetimeEarnings ? 1 : -1));
+    const top = ranked.slice(0, 3);
+    const spec = this.speculators[Math.floor(Math.random() * this.speculators.length)];
+    const target = top[Math.floor(Math.random() * top.length)];
+
+    const held: bigint = await this.c.shares.sharesBalance(target.id, spec.wallet.address);
+    if (held > 2n && Math.random() < 0.3) {
+      if (await tryTx(() => spec.c.shares.sellShares(target.id, 1))) {
+        this.log(`${spec.name} took profit: sold 1 "${target.name}" share`);
+      }
+      return;
+    }
+    const amount = 1n + BigInt(Math.floor(Math.random() * 2));
+    const cost: bigint = await this.c.shares.getBuyPriceAfterFee(target.id, amount);
+    const balance: bigint = await this.c.cycle.balanceOf(spec.wallet.address);
+    if (cost < balance / 10n) {
+      if (await tryTx(() => spec.c.shares.buyShares(target.id, amount))) {
+        this.log(`${spec.name} aped ${amount} share(s) of "${target.name}" for ${fmt(cost, 2)} CYCLE`);
+      }
+    }
+  }
+}
