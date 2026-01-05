@@ -120,3 +120,63 @@ export function markToMarket(a: RaceAgent, pxOf: (sym: string) => number | undef
 export function decideTrade(
   a: RaceAgent,
   basket: string[],
+  momOf: (sym: string) => number,
+  pxOf: (sym: string) => number | undefined,
+  rng: () => number
+): { sym: string; side: "buy" | "sell"; qty: number } | null {
+  const s = STRATEGIES[a.strategy];
+  if (rng() > s.actRate) return null;
+  const universe = s.prefs.length ? s.prefs.filter((x) => basket.includes(x)) : basket;
+  if (!universe.length) return null;
+
+  let sym: string;
+  if (s.style === "chase") {
+    sym = [...universe].sort((x, y) => Math.abs(momOf(y)) - Math.abs(momOf(x)))[0];
+  } else {
+    sym = universe[Math.floor(rng() * universe.length)];
+  }
+  const px = pxOf(sym);
+  if (!px) return null;
+
+  const mom = momOf(sym);
+  const held = a.positions[sym]?.qty ?? 0;
+  // signal → side. Tiny random exploration keeps books from freezing flat.
+  let wantBuy: boolean;
+  if (s.style === "revert") wantBuy = mom <= 0;               // buy the dip, sell the rip
+  else wantBuy = mom >= 0 ? rng() < 0.75 : rng() < 0.25;      // trend/chase ride direction
+
+  if (!wantBuy && held <= 0) {
+    // nothing to sell — a trend book may still open, otherwise hold
+    if (s.style === "revert" || rng() < 0.5) return null;
+    wantBuy = true;
+  }
+  const notional = Math.max(50, a.equity * s.size * (0.6 + rng() * 0.8));
+  if (wantBuy) {
+    const spend = Math.min(notional, a.cash * 0.98);
+    if (spend < 50) return null;                              // out of cash: hold
+    return { sym, side: "buy", qty: Math.round((spend / px) * 10000) / 10000 };
+  }
+  const qty = Math.min(held, Math.round(((notional / px) + Number.EPSILON) * 10000) / 10000);
+  if (qty <= 0) return null;
+  return { sym, side: "sell", qty };
+}
+
+export function logEvent(a: RaceAgent, text: string): void {
+  a.events.push({ at: Date.now(), text });
+  if (a.events.length > 24) a.events.shift();
+}
+
+export function snapshotCredits(a: RaceAgent): void {
+  a.creditHistory.push({ t: Date.now(), v: a.credits });
+  if (a.creditHistory.length > 240) a.creditHistory.shift();
+}
+
+export function mulberry(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
