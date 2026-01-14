@@ -785,3 +785,265 @@ async function watchDeposits(): Promise<void> {
         }
       }
     } catch { /* rpc hiccup */ }
+    finally { inFlight.delete(b.depositAddress); }
+  }
+}
+
+// ---------------------------------------------------------------- settlement
+async function settle(r: Race): Promise<void> {
+  r.settled = true;
+  await liquidateRaceStockLots(r);
+  // Final mark-to-market freezes the books at the bell.
+  for (const a of r.agents) if (a.funded) markToMarket(a, pxOf);
+  await refreshRealPortfolios().catch(() => {});
+  // flush any fills still waiting for their on-chain anchor
+  await anchorPendingFills().catch(() => {});
+  const ranked = [...r.agents].filter((a) => a.funded).sort((a, b) => scoreOf(b) - scoreOf(a));
+  r.results = ranked.map((a) => ({ name: a.name, owner: a.owner, credits: scoreOf(a), paidEth: 0 }));
+  const overall = ranked[0];
+  log(`race #${r.id} FINISHED - top trader: "${overall?.name}" at ${fmtUsd(overall ? scoreOf(overall) : 0)} real P&L (${overall?.fills.filter((f) => f.stockTx).length ?? 0} on-chain trades)`);
+
+  // ---- anchor the final standings on-chain (public, tamper-proof)
+  r.anchorTx = (await writeReceipt({
+    t: "race-result", race: r.id, winner: overall?.name ?? null, winnerPnlUsd: overall ? scoreOf(overall) : 0,
+    standings: ranked.slice(0, 6).map((a) => ({ name: a.name, pnlUsd: scoreOf(a), trades: a.fills.filter((f) => f.stockTx).length, equityUsd: equityOf(a) })),
+    capital: "on-chain USDG + stock-token equity", potEth: r.potEth, sidePotEth: r.sidePotEth,
+  })) ?? undefined;
+
+  // ---- house books settle ON-CHAIN: each house agent's net P&L becomes a
+  // real ETH transfer vs the treasury at the credit peg (1 P&L-dollar = CREDIT_GWEI),
+  // with the race receipt in the same tx's calldata.
+  for (const a of ranked) {
+    if (!a.house) continue;
+    const w = houseWalletByName.get(a.name);
+    const realPnl = scoreOf(a);
+    if (!w || Math.abs(realPnl) < 1) continue;
+    void agentJobTx(w, a, {}, {
+      t: "race-settle", race: r.id, agent: a.name, pnlUsd: realPnl,
+      trades: a.fills.filter((f) => f.stockTx).length, equityUsd: equityOf(a),
+    }, realPnl);
+  }
+
+  // ---- entry pot: winner-take-all among STAKED players
+  const paying = ranked.filter((a) => !a.house && a.owner);
+  if (paying.length === 1) {
+    const solo = paying[0];
+    const refund = solo.stakedEth || solo.entryEth; // what treasury actually holds
+    try {
+      const tx = await payOut(solo.owner!, refund);
+      const row = r.results.find((x) => x.name === solo.name)!;
+      row.paidEth = refund;
+      row.tx = tx;
+      log(`solo staked racer - entry refunded to ${solo.name}`);
+    } catch (e: any) { log(`solo refund failed: ${String(e?.message ?? e).slice(0, 90)}`); }
+  } else if (paying.length >= 2) {
+    const rake = (r.potEth * RAKE_BPS) / 10_000;
+    const prize = r.potEth - rake;
+    const champ = paying[0];
+    try {
+      const tx = await payOut(champ.owner!, prize);
+      const row = r.results.find((x) => x.name === champ.name)!;
+      row.paidEth = prize;
+      row.tx = tx;
+      log(`WINNER TAKES ALL: ${fmtEth(prize)} ETH to ${champ.name}`);
+    } catch (e: any) { log(`winner payout failed: ${String(e?.message ?? e).slice(0, 90)}`); }
+    // rake goes straight to YOUR treasury when set; else stays in the ops wallet.
+    if (rake > 0 && TREASURY_ADDRESS) {
+      try { await payOut(TREASURY_ADDRESS, rake); log(`rake ${fmtEth(rake)} ETH -> treasury`); } catch { /* stays in ops */ }
+    }
+  }
+
+  // ---- side pool: backers of the OVERALL winner (house agents bettable too)
+  const bets = r.sideBets.filter((b) => b.eth > 0);
+  if (bets.length > 0 && overall) {
+    const winners = bets.filter((b) => b.agentId === overall.id);
+    if (winners.length === 0) {
+      r.sideNote = "nobody backed the winner - all side bets refunded";
+      for (const b of bets) {
+        try { await payOut(b.owner, b.eth); } catch (e: any) { log(`side refund failed: ${String(e?.message ?? e).slice(0, 70)}`); }
+      }
+      log(`side pool: winner "${overall.name}" unbacked - ${fmtEth(r.sidePotEth)} ETH refunded`);
+    } else {
+      const rake = (r.sidePotEth * RAKE_BPS) / 10_000;
+      const pool = r.sidePotEth - rake;
+      const winStake = winners.reduce((s, b) => s + b.eth, 0);
+      for (const b of winners) {
+        const share = (pool * b.eth) / winStake;
+        try {
+          await payOut(b.owner, share);
+          log(`side payout: ${fmtEth(share)} ETH to backer of "${overall.name}"`);
+        } catch (e: any) { log(`side payout failed: ${String(e?.message ?? e).slice(0, 70)}`); }
+      }
+      r.sideNote = `backers of ${overall.name} split ${fmtEth(pool)} ETH`;
+      if (rake > 0 && TREASURY_ADDRESS) {
+        try { await payOut(TREASURY_ADDRESS, rake); log(`side-pool rake ${fmtEth(rake)} ETH -> treasury`); } catch { /* stays in ops */ }
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------- single-host static site
+// Railway runs ONE process: this service also serves the built site (web/dist)
+// so the whole product lives at one URL. API routes match first; any other GET
+// falls through to the static files with an SPA fallback to index.html.
+const DIST_DIR = path.join(__dirname, "..", "..", "web", "dist");
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css",
+  ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".ico": "image/x-icon",
+  ".json": "application/json", ".map": "application/json", ".txt": "text/plain", ".woff2": "font/woff2",
+};
+function serveStatic(pathname: string, res: http.ServerResponse): boolean {
+  if (!fs.existsSync(DIST_DIR)) return false; // dev mode: Vite serves the site itself
+  const safe = path.normalize(decodeURIComponent(pathname)).replace(/^([/\\])+/, "");
+  let file = path.join(DIST_DIR, safe);
+  if (!file.startsWith(DIST_DIR)) return false;                       // no traversal
+  if (!path.extname(file)) file = path.join(DIST_DIR, "index.html");  // SPA routes: /, /app, /docs
+  if (!fs.existsSync(file)) return false;
+  res.writeHead(200, { "content-type": MIME[path.extname(file)] ?? "application/octet-stream", "cache-control": path.extname(file) === ".html" ? "no-cache" : "public, max-age=3600" });
+  res.end(fs.readFileSync(file));
+  return true;
+}
+
+// -------------------------------------------------------------------- http
+function json(res: http.ServerResponse, code: number, body: unknown): void {
+  res.writeHead(code, {
+    "content-type": "application/json",
+    "access-control-allow-origin": "*",
+    "access-control-allow-headers": "content-type",
+    "access-control-allow-methods": "GET,POST,OPTIONS",
+  });
+  res.end(JSON.stringify(body));
+}
+const readBody = (req: http.IncomingMessage) =>
+  new Promise<any>((resolve, reject) => {
+    let s = ""; req.on("data", (d) => (s += d));
+    req.on("end", () => { try { resolve(JSON.parse(s || "{}")); } catch (e) { reject(e); } });
+    req.on("error", reject);
+  });
+
+const server = http.createServer(async (req, res) => {
+  if (req.method === "OPTIONS") return json(res, 204, {});
+  const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
+
+  // ------------------------------------------------------------ read state
+  if (req.method === "GET" && url.pathname === "/state") {
+    const sideByAgent: Record<string, number> = {};
+    for (const b of race?.sideBets ?? []) {
+      sideByAgent[b.agentId] = (sideByAgent[b.agentId] ?? 0) + b.eth;
+    }
+    return json(res, 200, {
+      network: chain.network,
+      racesPaused: RACES_PAUSED,
+      chain: {
+        chainId: chain.chainId,
+        chainIdHex: `0x${chain.chainId.toString(16)}`,
+        name: chain.name,
+        rpc: chain.rpc,             // the public RPC — what wallets add
+        explorer: chain.explorer,
+        faucet: chain.faucet,
+        currency: "ETH",
+      },
+      rpc: chain.rpc,
+      entryEth: MIN_ENTRY_ETH, maxEntryEth: MAX_ENTRY_ETH, minSideBetEth: MIN_SIDEBET_ETH,
+      treasury: SHOW_TREASURY ? treasury.address : "",
+      strategies: STRATEGIES,
+      arenaHost: { gpu: hw.gpuName, cpu: hw.cpuModel, threads: hostCompute.maxThreads },
+      race: race && {
+        id: race.id,
+        openedAt: race.openedAt,
+        startsAt: RACES_PAUSED ? Date.now() + LOBBY_MS : race.startsAt,
+        endsAt: RACES_PAUSED ? Date.now() + LOBBY_MS + RACE_MS : race.endsAt,
+        phase: RACES_PAUSED ? "paused" : Date.now() < race.startsAt ? "lobby" : Date.now() < race.endsAt ? "racing" : "settling",
+        joinCutoff: race.startsAt, // entries lock when the race begins
+        sideBetCutoff: race.endsAt - SIDEBET_CUTOFF_MS,
+        potEth: race.potEth,
+        sidePotEth: race.sidePotEth,
+        bankrollUsd: null,
+        capitalModel: "on-chain",
+        agents: race.agents.map((a) => {
+          const p = realPortfolioOf(a);
+          const realFills = a.fills.map(publicOnchainTrade).filter(Boolean);
+          return {
+          id: a.id, name: a.name, strategy: a.strategy, house: a.house, funded: a.funded,
+          owner: a.owner, depositAddress: a.depositAddress,
+          wallet: a.house && SHOW_AGENTS ? houseWalletByName.get(a.name)?.address ?? null : null,
+          entryEth: a.entryEth,
+          desk: STRATEGIES[a.strategy].name,
+          cashUsd: p?.usdg ?? a.cash,
+          equityUsd: p?.equityUsd ?? a.equity,
+          startEquityUsd: p?.startEquityUsd ?? BANKROLL_USD,
+          positions: p?.positions ?? [],
+          credits: p?.pnlUsd ?? a.credits,
+          revenue: p?.pnlUsd ?? a.revenue,
+          jobsWon: realFills.length,
+          jobsVerified: realFills.filter((f: any) => f.onchainSale && f.usd >= REAL_STOCK_BUY_USDG * 0.99).length,
+          jobsRejected: realFills.filter((f: any) => f.onchainSale && f.usd < REAL_STOCK_BUY_USDG * 0.99).length,
+          creditHistory: p?.history ?? a.creditHistory,
+          events: a.events.slice(-12),
+          lastFills: realFills.slice(-8),
+          sideBetEth: sideByAgent[a.id] ?? 0,
+        }; }),
+        // THE TAPE — every fill on the floor, newest first, on-chain anchors included
+        trades: [...race.trades].reverse().map(publicOnchainTrade).filter(Boolean).slice(0, 40),
+        jobs: [], // legacy compute field
+      },
+      // THE MARKET — the real Robinhood Stock Tokens the agents trade, priced live
+      market: {
+        live: marketStatus().live,
+        explorer: marketStatus().explorer,
+        tokenBase: STOCK_TOKEN_BASE,
+        stocks: BASKET.map((st) => {
+          const q = quoteOf(st.sym);
+          return {
+            sym: st.sym, name: st.name, kind: st.kind, token: st.token,
+            usd: q?.usd ?? null,
+            spark: (q?.history ?? []).slice(-40).map((h) => h.usd),
+            move3m: Math.round(momentum(st.sym, 3 * 60_000) * 100) / 100,
+            vol24hUsd: q?.vol24hUsd ?? 0,
+            url: STOCK_TOKEN_BASE + st.token,
+          };
+        }),
+      },
+      explorerTxBase: chain.explorer ? `${chain.explorer}/tx/` : "",
+      explorerAddressBase: chain.explorer ? `${chain.explorer}/address/` : "",
+      receiptsPaused,
+      // THE WALLET BOARD — the house agents are real wallets doing real txns.
+      // Balances + latest on-chain activity, refreshed live; every hash and
+      // every address is a Blockscout link users can independently verify.
+      wallets: {
+        creditGwei: CREDIT_GWEI,
+        public: PUBLIC_WALLETS, // true only when EVERYTHING is public
+        maskNote: PUBLIC_WALLETS ? null : SHOW_AGENTS ? "treasury address is TBA — announced at token launch" : "addresses TBA — announced at token launch",
+        agents: HOUSE.map((h, i) => {
+          const addr = agentWallets[i].address;
+          const st = db.walletStats?.[h.name] ?? { earned: 0, spent: 0 };
+          const portfolio = realPortfolios.get(addr);
+          return {
+            name: h.name, strategy: h.strategy,
+            address: SHOW_AGENTS ? addr : null,
+            eth: walletEth.get(addr) ?? null,
+            ethEarned: st.earned, // cumulative on-chain, real
+            ethSpent: st.spent,
+            usdg: portfolio?.usdg ?? null,
+            tradingEquityUsd: portfolio?.equityUsd ?? null,
+            tradingPnlUsd: portfolio?.pnlUsd ?? null,
+            stockPositions: portfolio?.positions ?? [],
+            paused: (walletFlowPaused.get(addr) ?? 0) > Date.now() ? true : false,
+            txs: SHOW_AGENTS ? walletActivity(addr) : [],
+          };
+        }),
+        treasury: (() => {
+          // YOUR treasury when set (receive-only, key never on the server);
+          // else the local ops wallet stands in for testing.
+          if (TREASURY_ADDRESS) {
+            return {
+              name: "Treasury", receiveOnly: true,
+              address: SHOW_TREASURY ? TREASURY_ADDRESS : null,
+              eth: walletEth.get(TREASURY_ADDRESS) ?? null,
+              paused: false,
+              txs: SHOW_TREASURY ? walletActivity(TREASURY_ADDRESS) : [],
+            };
+          }
+          const addr = treasury.address;
+          return {
+            name: "House treasury",
