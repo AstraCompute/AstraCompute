@@ -1047,3 +1047,264 @@ const server = http.createServer(async (req, res) => {
           const addr = treasury.address;
           return {
             name: "House treasury",
+            address: SHOW_TREASURY ? addr : null,
+            eth: walletEth.get(addr) ?? null,
+            paused: (walletFlowPaused.get(addr) ?? 0) > Date.now() ? true : false,
+            txs: SHOW_TREASURY ? walletActivity(addr) : [],
+          };
+        })(),
+      },
+      pastRaces: db.pastRaces.slice(0, 6).map((r) => ({
+        id: r.id, endsAt: r.endsAt,
+        potEth: r.potEth,
+        sidePotEth: r.sidePotEth,
+        sideNote: r.sideNote ?? null,
+        anchorTx: SHOW_AGENTS ? r.anchorTx ?? null : null, // link masked in deep-stealth mode
+        results: r.results.slice(0, 5).map((x) => (SHOW_AGENTS ? x : { ...x, tx: undefined })),
+      })),
+    });
+  }
+
+  // ------------------- AGENT DASHBOARD: one desk, fully on-chain verifiable
+  // Everything a bettor needs to audit a single agent: the complete trade log
+  // with each fill's on-chain anchor tx, open positions marked at live prices,
+  // the equity curve, W/L, and (house desks) the real wallet whose Blockscout
+  // page is the desk's public money trail.
+  if (req.method === "GET" && url.pathname === "/agent") {
+    const id = String(url.searchParams.get("id") ?? "");
+    const a = agentById(id);
+    if (!a || !race) return json(res, 404, { error: "unknown agent (only the current race's agents have live books)" });
+    const walletAddr = a.house ? houseWalletByName.get(a.name)?.address ?? null : a.owner;
+    const st = a.house ? db.walletStats?.[a.name] ?? { earned: 0, spent: 0 } : null;
+    const portfolio = realPortfolioOf(a);
+    const realFills = a.fills.map(publicOnchainTrade).filter(Boolean) as any[];
+    return json(res, 200, {
+      race: { id: race.id, phase: RACES_PAUSED ? "paused" : Date.now() < race.startsAt ? "lobby" : Date.now() < race.endsAt ? "racing" : "settling", endsAt: race.endsAt, bankrollUsd: portfolio?.startEquityUsd ?? BANKROLL_USD },
+      agent: {
+        id: a.id, name: a.name, house: a.house, funded: a.funded,
+        strategy: a.strategy, desk: STRATEGIES[a.strategy].name, blurb: STRATEGIES[a.strategy].blurb,
+        owner: a.owner,
+        wallet: SHOW_AGENTS ? walletAddr : a.house ? null : a.owner,
+        walletUrl: SHOW_AGENTS && walletAddr && chain.explorer ? `${chain.explorer}/address/${walletAddr}` : null,
+        eth: walletAddr ? walletEth.get(walletAddr) ?? null : null,
+        ethEarned: st?.earned ?? null, ethSpent: st?.spent ?? null,
+        cashUsd: portfolio?.usdg ?? a.cash,
+        equityUsd: portfolio?.equityUsd ?? a.equity,
+        startEquityUsd: portfolio?.startEquityUsd ?? BANKROLL_USD,
+        pnlUsd: portfolio?.pnlUsd ?? a.credits,
+        trades: realFills.length,
+        wins: realFills.filter((f) => f.onchainSale && f.usd >= REAL_STOCK_BUY_USDG * 0.99).length,
+        losses: realFills.filter((f) => f.onchainSale && f.usd < REAL_STOCK_BUY_USDG * 0.99).length,
+        equityHistory: (portfolio?.history ?? a.creditHistory).map((h) => ({ t: h.t, equityUsd: h.v + (portfolio?.startEquityUsd ?? BANKROLL_USD) })),
+        positions: (portfolio?.positions ?? []).map((p) => ({
+          ...p, tokenUrl: STOCK_TOKEN_BASE + p.token,
+        })),
+        // the COMPLETE trade log, newest first — every fill with its anchor tx
+        fills: [...realFills].reverse().map((f) => ({
+          ...f,
+          receiptUrl: f.receiptTx && chain.explorer ? `${chain.explorer}/tx/${f.receiptTx}` : null,
+          tokenUrl: f.stockToken ? STOCK_TOKEN_BASE + f.stockToken : null,
+        })),
+        events: a.events.slice(-16),
+      },
+      explorerTxBase: chain.explorer ? `${chain.explorer}/tx/` : "",
+      explorerAddressBase: chain.explorer ? `${chain.explorer}/address/` : "",
+      verifyNote: "Every row is a confirmed token swap from the agent wallet. Equity is live USDG plus Robinhood Stock Token value; P&L is its change since this race opened.",
+    });
+  }
+
+  // ------------------------ PUBLIC VERIFY: re-derive any job's answer + hash
+  // Anyone calls this (or runs the same math), then compares answerHash to the
+  // value in the job's on-chain proof receipt. Match = the agent did it right.
+  if (req.method === "GET" && url.pathname === "/verify") {
+    const spec = String(url.searchParams.get("spec") ?? "");
+    if (!isSpecSafe(spec)) return json(res, 400, { error: "spec out of bounds or unknown" });
+    try {
+      const answer = solve(spec);
+      return json(res, 200, {
+        spec, answer, answerHash: resultHashOf(spec, answer),
+        note: "re-derived from the spec on request. Compare answerHash to the job's on-chain proof receipt (the tx calldata). Match = verified.",
+      });
+    } catch {
+      return json(res, 400, { error: "unknown/invalid spec" });
+    }
+  }
+
+  // -------------------------------------------------- enter your own agent
+  if (req.method === "POST" && url.pathname === "/join") {
+    try {
+      const { name, strategy, owner, entryEth } = await readBody(req);
+      if (!race) return json(res, 503, { error: "no race live" });
+      if (RACES_PAUSED) return json(res, 503, { error: "races are temporarily paused" });
+      if (Date.now() >= race.startsAt) return json(res, 400, { error: "entries locked — the race has started, catch the next lobby" });
+      if (!name || String(name).length > 24) return json(res, 400, { error: "name required (max 24 chars)" });
+      if (!STRATEGIES[strategy as StrategyId]) return json(res, 400, { error: "unknown strategy" });
+      const ownerAddr = validAddress(owner);
+      if (!ownerAddr) return json(res, 400, { error: "invalid owner address - connect your wallet" });
+      if (race.agents.some((a) => !a.house && a.owner === ownerAddr && !a.funded)) {
+        return json(res, 400, { error: "you already have an unfunded entry - pay it first" });
+      }
+      if (race.agents.length >= 24) return json(res, 400, { error: "race full" });
+
+      const entry = Math.min(MAX_ENTRY_ETH, Math.max(MIN_ENTRY_ETH, Number(entryEth) || MIN_ENTRY_ETH));
+      const id = `r${race.id}-u${race.agents.length}`;
+      const agent = newAgent({
+        id, name: String(name), strategy: strategy as StrategyId,
+        house: false, owner: ownerAddr,
+        depositAddress: depositFor(id).address,
+        funded: false, entryEth: entry,
+        backend: "vast",
+      });
+      race.agents.push(agent);
+      log(`entry created: "${agent.name}" (${STRATEGIES[agent.strategy].name} desk, stake ${entry} ETH)`);
+      return json(res, 200, {
+        agentId: id,
+        depositAddress: agent.depositAddress,
+        entryEth: entry,
+        entryWeiHex: `0x${ethToWei(entry).toString(16)}`,
+        capitalModel: "on-chain house wallets",
+      });
+    } catch (e: any) { return json(res, 400, { error: String(e?.message ?? e).slice(0, 120) }); }
+  }
+
+  // ------------------------------------------- side-bet on ANY agent in ETH
+  if (req.method === "POST" && url.pathname === "/bet") {
+    try {
+      const { agentId, owner } = await readBody(req);
+      if (!race) return json(res, 503, { error: "no race live" });
+      if (RACES_PAUSED) return json(res, 503, { error: "races are temporarily paused" });
+      if (Date.now() > race.endsAt - SIDEBET_CUTOFF_MS) return json(res, 400, { error: "side bets closed for this race" });
+      const a = agentById(String(agentId));
+      if (!a || !a.funded) return json(res, 400, { error: "unknown agent" });
+      const ownerAddr = validAddress(owner);
+      if (!ownerAddr) return json(res, 400, { error: "connect your wallet first" });
+      const key = `bet:${race.id}:${a.id}:${ownerAddr}`;
+      let bet = race.sideBets.find((b) => b.agentId === a.id && b.owner === ownerAddr);
+      if (!bet) {
+        bet = { owner: ownerAddr, agentId: a.id, eth: 0, depositAddress: depositFor(key).address };
+        race.sideBets.push(bet);
+      }
+      return json(res, 200, {
+        depositAddress: bet.depositAddress,
+        minEth: MIN_SIDEBET_ETH,
+        minWeiHex: `0x${ethToWei(MIN_SIDEBET_ETH).toString(16)}`,
+        note: `send ETH here to back ${a.name}; backers of the round's #1 split the side pool (5% rake)`,
+      });
+    } catch (e: any) { return json(res, 400, { error: String(e?.message ?? e).slice(0, 120) }); }
+  }
+
+  // own-rig worker protocol: retired with the pivot to RWA trading
+  if (url.pathname === "/worker/next" || url.pathname === "/worker/result") {
+    return json(res, 410, { error: "retired — the agents trade tokenized stocks now, no external compute needed" });
+  }
+
+  // not an API route: serve the site (single-host mode) or 404
+  if (req.method === "GET" && serveStatic(url.pathname, res)) return;
+  return json(res, 404, { error: "not found" });
+});
+
+// -------------------------------------------------------------------- boot
+// Robustness backstop: a transient RPC/network blip (a connect-timeout, a
+// dropped confirmation socket) must NEVER take the arena down mid-race. Every
+// app-level RPC call is already individually try/caught; this catches stray
+// rejections that escape from deep inside ethers' polling internals. The
+// arena logs it and keeps serving.
+process.on("unhandledRejection", (reason: any) => {
+  log(`⚠ unhandled rejection (arena stays up): ${String(reason?.message ?? reason).slice(0, 140)}`);
+});
+process.on("uncaughtException", (err: any) => {
+  log(`⚠ uncaught exception (arena stays up): ${String(err?.message ?? err).slice(0, 140)}`);
+});
+
+async function main() {
+  await Promise.all([refreshMarket(), detectChain()]);
+  const mkt = allQuotes();
+  console.log(`\n  HEDGE BOTS - coordination + speculation, fused around raw compute`);
+  console.log(`  chain      ${chain.name} (chainId ${chain.chainId}, ${chain.network}) via ${RPC_URL.replace(/\/v2\/.+$/, "/v2/***")}`);
+  console.log(`  explorer   ${chain.explorer || "(none configured)"}`);
+  console.log(`  treasury   ${treasury.address} - the ONE house wallet (pot + payouts + rewards + rake)`);
+  for (let i = 0; i < HOUSE.length; i++) {
+    console.log(`  agent #${i + 1}   ${agentWallets[i].address} - ${HOUSE[i].name} (${HOUSE[i].strategy})${process.env[AGENT_ENV_NAMES[i]] ? "" : " [local key]"}`);
+  }
+  console.log(`  peg        $1 of P&L = ${CREDIT_GWEI} gwei — house books settle wallet<->treasury on-chain each race`);
+  console.log(`  arena host ${hw.cpuModel} (${hostCompute.maxThreads} threads) · ${hw.gpuName}`);
+  console.log(`  market     ${mkt.length}/${BASKET.length} Robinhood Stock Tokens quoting live${mkt.length ? ` · ${mkt.slice(0, 4).map((q) => `${q.sym} ${q.usd.toFixed(2)}`).join(" · ")} …` : " (feed warming up)"}`);
+  console.log(`  economics  entry ${MIN_ENTRY_ETH}-${MAX_ENTRY_ETH} ETH WINNER-TAKES-ALL · side bets ${MIN_SIDEBET_ETH}+ ETH · rake ${RAKE_BPS / 100}%\n`);
+
+  // loudly list anything unfunded — flows pause per-wallet until fed. On the
+  // testnet, the faucet link is right there.
+  for (const [i, k] of agentWallets.entries()) {
+    const b = await getBalanceWei(k.address).catch(() => 0n);
+    if (b < ethToWei(0.00005)) log(`⚠ ${HOUSE[i].name} wallet ${k.address} is unfunded - send it ETH to activate its on-chain flows${chain.faucet ? ` (faucet: ${chain.faucet})` : ""}`);
+  }
+  const tb = await getBalanceWei(treasury.address).catch(() => 0n);
+  if (tb < ethToWei(0.0005)) log(`⚠ treasury ${treasury.address} is underfunded - it holds the pot and pays winners + job rewards; fund it${chain.faucet ? ` (faucet: ${chain.faucet})` : ""}`);
+
+  // AUTO-SEED (OPT-IN, default OFF): the agents own their funding — the only
+  // treasury→agent ETH in normal operation is job rewards they EARN. Set
+  // SEED_AGENTS_ETH>0 only if you want the treasury to top up any agent wallet
+  // that runs EMPTY (below 40% of the amount; never touches funded wallets,
+  // keeps a payout reserve). Handy on testnet; leave off on mainnet.
+  const SEED_ETH = Math.max(0, Number(process.env.SEED_AGENTS_ETH) || 0);
+  if (SEED_ETH > 0) {
+    const TREASURY_RESERVE = ethToWei(0.002); // never seed below this
+    const seedAgents = async (): Promise<void> => {
+      let tBal = await getBalanceWei(treasury.address);
+      for (const w of agentWallets.map((k) => k.address)) {
+        const need = ethToWei(SEED_ETH);
+        if (tBal - need < TREASURY_RESERVE) return; // keep the reserve
+        const b = await getBalanceWei(w);
+        if (b < (need * 2n) / 5n) {
+          await payOut(w, SEED_ETH);
+          tBal -= need;
+          log(`auto-seed: ${SEED_ETH} ETH treasury -> ${w.slice(0, 10)}… (agent wallet was empty)`);
+        }
+      }
+    };
+    void seedAgents().catch((e: any) => log(`seeding pass skipped: ${String(e?.message ?? e).slice(0, 60)}`));
+    setInterval(() => void seedAgents().catch(() => {}), 60_000);
+  }
+
+  // MY JOB per your spec: move the agents' funds to YOUR treasury. Every 10
+  // minutes, anything above each agent's working float sweeps to it — plus
+  // per-job rent/losses stream there live, and `npm run sweep` drains on demand.
+  if (TREASURY_ADDRESS) {
+    const sweepProfits = async (): Promise<void> => {
+      for (const [i, kp] of agentWallets.entries()) {
+        const r = await drainTo(kp, TREASURY_ADDRESS, { keepWei: AGENT_FLOAT_WEI });
+        if (r) {
+          pushWalletTx(kp.address, r.hash);
+          pushWalletTx(TREASURY_ADDRESS, r.hash);
+          log(`sweep: ${fmtEth(r.ethMoved)} ETH ${HOUSE[i].name} -> treasury (tx ${r.hash.slice(0, 12)}…)`);
+        }
+      }
+    };
+    setInterval(() => void sweepProfits().catch(() => {}), 10 * 60_000);
+    log(`ONE-WAY treasury live: ${TREASURY_ADDRESS.slice(0, 10)}… receives rent, rake & sweeps (agents keep ${weiToEth(AGENT_FLOAT_WEI)} ETH float; key NOT on this server)`);
+  }
+
+  void refreshWalletBoard().catch(() => {});
+  setInterval(() => void refreshWalletBoard().catch(() => {}), 30_000);
+  setInterval(() => { try { saveDb(); } catch { /* volume hiccup */ } }, 60_000); // persist walletStats between settles
+
+  race = newRace();
+  await refreshRealPortfolios(true);
+  void initRaceSpendCaps().catch(() => {}); // snapshot each agent's 5% per-race budget
+  setInterval(() => void tick().catch((e) => log(`tick error: ${String(e?.message ?? e).slice(0, 100)}`)), TICK_MS);
+  setInterval(() => void watchDeposits().catch(() => {}), 5_000);
+  setInterval(() => void refreshMarket().catch(() => {}), MARKET_REFRESH_MS);
+  setInterval(() => void refreshRealPortfolios().catch(() => {}), 5_000);
+  setInterval(() => void anchorPendingFills().catch(() => {}), ANCHOR_EVERY_MS);
+
+  // A failure to bind the port is FATAL — exit loudly so it isn't masked by the
+  // runtime unhandledRejection/uncaughtException backstop above (which is only for
+  // transient in-flight errors, never a dead HTTP server the operator can't see).
+  server.on("error", (e: any) => {
+    if (e?.code === "EADDRINUSE") console.error(`\n  FATAL: port ${PORT} already in use — another arena is running. Stop it first.\n`);
+    else console.error(`\n  FATAL server error: ${String(e?.message ?? e)}\n`);
+    process.exit(1);
+  });
+  server.listen(PORT, () => log(`API live on http://localhost:${PORT} (GET /state · POST /join · POST /bet · worker protocol)`));
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });
