@@ -102,3 +102,54 @@ export async function refreshVastMarket(): Promise<VastStatus> {
     };
     // NOTE: the trailing slash is load-bearing — vast.ai 301s /bundles to
     // /bundles/ and the redirect hop turns into a 403 under Node's fetch.
+    const res = await fetch(`${API}/bundles/?q=${encodeURIComponent(JSON.stringify(q))}`, { headers, signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error(`vast api ${res.status}`);
+    const data: any = await res.json();
+    const byModel = new Map<string, VastOfferLite>();
+    for (const raw of data.offers ?? []) {
+      const o = asOffer(raw);
+      if (!o) continue;
+      const prev = byModel.get(o.gpu);
+      if (!prev || o.dollarsPerHour < prev.dollarsPerHour) byModel.set(o.gpu, o);
+    }
+    // a SPREAD, not just budget cards: the 3 cheapest models + every flagship
+    // present (3090/4090/5090/A100/H100/L40/A6000/4080) — so players can rent
+    // a beater or the big iron, each at its real market price.
+    const all = [...byModel.values()].sort((a, b) => a.dollarsPerHour - b.dollarsPerHour);
+    const flagship = /(RTX (3090|4080|4090|5090)|A100|H100|L40|A6000)/i;
+    const picks = new Map<string, VastOfferLite>();
+    for (const o of all.slice(0, 3)) picks.set(o.gpu, o);
+    for (const o of all) if (flagship.test(o.gpu)) picks.set(o.gpu, o);
+    const menu = [...picks.values()].sort((a, b) => a.dollarsPerHour - b.dollarsPerHour).slice(0, 10);
+    if (menu.length) cached = { ...cached, menu };
+  } catch { /* keep last menu */ }
+
+  return cached;
+}
+
+/** Rent a fleet instance whose onstart runs the worker connector against a
+ *  PUBLIC arena URL. No-op in standby. */
+export async function activateFleet(publicUrl: string, agentClaims: Array<{ agentId: string; claim: string }>): Promise<string> {
+  if (!KEY) return "standby: no VAST_API_KEY";
+  if (!publicUrl.startsWith("https://")) return "standby: arena has no public URL";
+  if (!cached.offer) await refreshVastMarket();
+  if (!cached.offer) return "standby: no offers available";
+  const onstart = agentClaims
+    .map((a) => `AGENT=${a.agentId} CLAIM=${a.claim} API=${publicUrl} npx -y tsx plugin &`)
+    .join("\n");
+  const res = await fetch(`${API}/asks/${cached.offer.id}/`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      client_id: "me",
+      image: "node:22-slim",
+      onstart_cmd: onstart,
+      disk: 10,
+      label: "agora-arena-fleet",
+    }),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) return `standby: create failed (${res.status})`;
+  cached = { ...cached, fleet: "active", reason: "fleet instance provisioning" };
+  return "fleet: instance requested";
+}
