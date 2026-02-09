@@ -129,3 +129,67 @@ export default function AgentPage() {
           </div>
 
           {/* real stock positions held on-chain */}
+          {/* equity curve */}
+          <div className="card">
+            <h3>Equity curve — this race <span className="hbar" /><span className="livedot" /></h3>
+            <EquityChart pts={a.equityHistory} bankroll={a.startEquityUsd ?? data.race.bankrollUsd} />
+          </div>
+
+          {/* open positions */}
+          <div className="card">
+            <h3>Open positions — marked at the live on-chain market <span className="hbar" /></h3>
+            {a.positions.length ? (
+              <table>
+                <thead><tr><th>Stock</th><th className="num">Token balance</th><th className="num">Price now</th><th className="num">Value</th><th>Token</th></tr></thead>
+                <tbody>
+                  {a.positions.map((p: any) => (
+                    <tr key={p.sym}>
+                      <td><b className="ink">{p.sym}</b></td>
+                      <td className="num">{Number(p.qty).toLocaleString(undefined, { maximumFractionDigits: 8 })}</td>
+                      <td className="num ink">{fmtUsd(p.px)}</td>
+                      <td className="num ink">{fmtUsd(p.valueUsd)}</td>
+                      <td>{p.tokenUrl ? <a href={p.tokenUrl} target="_blank" rel="noreferrer" style={{ color: "var(--violet)", fontFamily: "var(--font-mono)", fontSize: 11 }}>real token ↗</a> : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <div className="mut" style={{ padding: "6px 0" }}>flat — all cash right now.</div>}
+          </div>
+
+          {/* THE TRADE LOG — every fill, every tx id */}
+          <div className="card">
+            <h3>Trade log — every fill, every on-chain receipt <span className="hbar" /><span className="mono" style={{ letterSpacing: 0, color: "var(--muted)", fontSize: 11 }}>{a.fills.length} fills</span></h3>
+            <div style={{ maxHeight: 420, overflowY: "auto" }}>
+              <table>
+                <thead><tr><th>Time</th><th>Side</th><th>Stock</th><th className="num">Shares</th><th className="num">Price</th><th className="num">Notional</th><th>On-chain receipt (tx)</th></tr></thead>
+                <tbody>
+                  {a.fills.map((f: any, i: number) => (
+                    <tr key={`${f.t}-${i}`}>
+                      <td className="mut" style={{ fontSize: 11 }}>{timeFmt(f.t)}</td>
+                      <td><span style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, fontWeight: 700, color: f.side === "buy" ? "#00913c" : "#ff5000", background: f.side === "buy" ? "rgba(0,200,5,0.1)" : "rgba(255,80,0,0.1)", borderRadius: 6, padding: "2px 8px" }}>{f.side.toUpperCase()}</span></td>
+                      <td><b className="ink">{f.sym}</b>{f.tokenUrl && <> <a href={f.tokenUrl} target="_blank" rel="noreferrer" className="mut" style={{ fontSize: 9.5, textDecoration: "none" }}>↗</a></>}</td>
+                      <td className="num">{Number(f.qty).toLocaleString(undefined, { maximumFractionDigits: 8 })}</td>
+                      <td className="num">{fmtUsd(f.px)}</td>
+                      <td className="num ink">{fmtUsd(f.usd)}</td>
+                      <td>
+                        {f.receiptUrl
+                          ? <a href={f.receiptUrl} target="_blank" rel="noreferrer" style={{ color: "var(--violet)", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600 }}>{f.receiptTx.slice(0, 10)}…{f.receiptTx.slice(-6)} ↗</a>
+                          : f.proven
+                            ? <span style={{ color: "var(--violet)", fontSize: 11 }} title="anchored — link public at launch">✓🔒 anchored</span>
+                            : <span className="mut" style={{ fontSize: 10.5 }} title="fills anchor in batches every ~30s">anchoring…</span>}
+                      </td>
+                    </tr>
+                  ))}
+                  {a.fills.length === 0 && <tr><td colSpan={7} className="mut" style={{ padding: 14 }}>no fills yet — the desk trades once the race is running.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <div className="mut" style={{ fontSize: 11.5, marginTop: 10 }}>
+              <b className="ink">How to verify:</b> {data.verifyNote}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
