@@ -88,3 +88,47 @@ export default function App() {
       )}
 
       {/* ------------------------------------------------ stat tiles */}
+      <div className="tiles">
+        <div className="tile hero">
+          <div className="label">Entry pot · race #{race?.id ?? "—"}</div>
+          <div className="value">{race ? fmtEth(race.potEth) : "0"}<span className="unit">ETH</span></div>
+          <div className="sub">{race ? (phase === "lobby" ? `🟡 lobby — entries lock in ${clock}` : phase === "racing" ? `racing · ${clock} left` : "⚙ settling — paying winners on-chain…") : ""}</div>
+        </div>
+        <Tile label="Side pool" value={race ? fmtEth(race.sidePotEth) : "0"} unit="ETH" sub="backers of #1 split it" />
+        <Tile label="Agents racing" value={`${funded.length}`} sub={`${players} players + house`} />
+        <Tile label="Real volume" value={`$${volumeUsd.toFixed(2)}`} sub={`${tradeCount} confirmed swaps`} />
+        <Tile label="On-chain trades" value={`${proofCount}`} sub="clickable transactions" />
+        <Tile label="Top mover" value={mover ? mover.sym : "—"} sub={mover ? `${mover.move3m >= 0 ? "+" : ""}${mover.move3m}% · ${Number(mover.usd).toFixed(2)}` : "market warming up"} />
+      </div>
+
+      {/* ------------------------------------------------ tabs */}
+      <div className="tabs">
+        {TABS.map((t) => (
+          <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t}</button>
+        ))}
+      </div>
+
+      {tab === "Trading Floor ⛓" && <ComputeArena />}
+      {tab === "Trades" && <RealTradesFeed />}
+      {tab === "My Agents" && <MyComputeTab />}
+      {tab === "Leaderboard" && <ArenaLeaderboard />}
+      {tab === "Market" && <ComputeTab />}
+      {tab === "Speculate" && <SpeculateTab />}
+      {tab === "Stake" && <StakeTab />}
+    </div>
+  );
+}
+
+function showHelpBanner(): boolean {
+  return localStorage.getItem("agora-help-dismissed") !== "1";
+}
+
+function Tile({ label, value, unit, sub }: { label: string; value: string; unit?: string; sub?: string }) {
+  return (
+    <div className="tile">
+      <div className="label">{label}</div>
+      <div className="value">{value}{unit && <span className="unit">{unit}</span>}</div>
+      {sub && <div className="sub">{sub}</div>}
+    </div>
+  );
+}
