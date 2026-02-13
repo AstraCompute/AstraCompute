@@ -120,3 +120,63 @@ export function SpeculateTab() {
       const tx = await payEntry(arena.chain, wallet.provider, wallet.address, data.depositAddress, data.minWeiHex);
       setMsg(`bet placed on ${agentName} (${tx.slice(0, 12)}…) — if it finishes #1 you split the side pool`);
     } catch (e: any) { setMsg(String(e?.message ?? e).slice(0, 140)); }
+  }
+
+  return (
+    <div className="card">
+      <h3>Speculate — back an agent with ETH <span className="hbar" /><span className="mono" style={{ letterSpacing: 0, color: betsOpen ? "var(--good)" : "var(--muted)" }}>{arena.race ? (betsOpen ? `bets close in ${secsToCutoff}s` : "bets closed") : ""} · pool {arena.race ? fmtEth(arena.race.sidePotEth) : "0"} <EthMark size={10} /></span></h3>
+      <table>
+        <thead><tr><th>#</th><th>Agent</th><th className="num">P&L</th><th className="num">Backed</th><th className="num">Back it</th></tr></thead>
+        <tbody>
+          {ranked.map((a: any, i: number) => (
+            <tr key={a.id}>
+              <td className="mut">{i + 1}</td>
+              <td><a href={`/agent/${a.id}`} style={{ textDecoration: "none" }} title="open this desk's dashboard"><span className="dot" style={{ background: STRAT_COLOR[a.strategy] ?? "#2a78d6" }} /><span className="ink" style={{ borderBottom: "1px dashed var(--border-strong)" }}>{a.name}</span></a>{a.house ? <span className="mut" style={{ fontSize: 10 }}> · house</span> : <span style={{ color: "var(--violet)", fontSize: 10 }}> · player</span>}</td>
+              <td className="num" style={{ color: a.credits >= 0 ? "var(--good)" : "var(--critical)" }}>{fmtPnl(a.credits)}</td>
+              <td className="num">{a.sideBetEth > 0 ? <>{fmtEth(a.sideBetEth)} <EthMark size={9} /></> : "—"}</td>
+              <td className="num">{betsOpen ? <button className="ghost" style={{ padding: "3px 10px", fontSize: 11 }} onClick={() => back(a.id, a.name)}>{arena.minSideBetEth} <EthMark size={9} /></button> : <span className="mut" style={{ fontSize: 10 }}>closed</span>}</td>
+            </tr>
+          ))}
+          {ranked.length === 0 && <tr><td colSpan={5} className="mut" style={{ padding: 14 }}>agents funding up…</td></tr>}
+        </tbody>
+      </table>
+      {msg && <div className="ok" style={{ marginTop: 8 }}>{msg}</div>}
+      <div className="mut" style={{ fontSize: 11.5, marginTop: 10 }}>Back any agent with ETH. Backers of the round's #1 compute earner split the side pool (5% rake). Refunded if the winner had no backers.</div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------- Stake
+export function StakeTab() {
+  const { arena } = useArena();
+  return (
+    <>
+      <div className="card">
+        <h3>Stake — put ETH behind your agent <span className="hbar" /></h3>
+        <div style={{ fontSize: 13.5, lineHeight: 1.7, color: "var(--ink-2)" }}>
+          Staking means <b className="ink">staking ETH to enter your agent</b> into a race — your buy-in. Every entrant's
+          stake forms the pot, and the agent that earns the most from verified compute <b className="ink">takes it all.</b>
+          Do it right here ↓ {arena?.network === "mainnet"
+            ? <>(Robinhood Chain mainnet — <b className="ink">real ETH</b>, stake what you're happy to race with).</>
+            : <>(you'll need a little testnet ETH in your wallet — free from {arena?.chain?.faucet ? <a href={arena.chain.faucet} target="_blank" rel="noreferrer" style={{ color: "var(--violet)" }}>the Robinhood Chain faucet</a> : "the Robinhood Chain faucet"}).</>}
+        </div>
+      </div>
+
+      {/* the actual stake action */}
+      <BuildAgentForm />
+
+      <div className="card">
+        <h3>ETH fee vault <span className="hbar" /><span className="mono" style={{ letterSpacing: 0, color: "var(--warning)" }}>coming soon</span></h3>
+        <div className="mut" style={{ fontSize: 12.5, lineHeight: 1.7 }}>
+          A vault where you stake ETH and earn a share of every arena fee (the 5% rake on races and side pools) is on the
+          roadmap — it needs an audited smart contract before it holds real yield. Current entry stake ranges
+          {arena ? ` ${arena.entryEth}–${arena.maxEntryEth} ETH` : ""}, rake 5%.
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Offline() {
+  return <div className="card"><h3>Arena <span className="hbar" /></h3><div className="emptystate"><span className="big">⛓</span>the arena is reconnecting — one moment…</div></div>;
+}
