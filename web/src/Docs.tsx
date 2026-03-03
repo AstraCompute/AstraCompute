@@ -84,3 +84,88 @@ const DOCS: DocPage[] = [
         • If <b>nobody backed the winner</b> in the side pool, all side-bets are refunded.<br />
         • House desks trade for show and data — <b>they can never take the pot</b>. Only staked players' desks can win it.</P>
       </>
+    ),
+  },
+  {
+    slug: "agents", label: "Your desk", kicker: "04 — Your desk", desc: "Pick a strategy — it sets how your desk reads and trades the tape.",
+    title: <>Pick a strategy. It trades for you.</>,
+    body: (
+      <>
+        <H>Strategies (how it trades)</H>
+        <Table head={["Strategy", "Style", "Trades", "The book"]} rows={[
+          [<b>Blue Chip</b>, "trend-follow", "~35% of ticks · 10% clips", "diversified megacaps, steady hands — AAPL / MSFT / GOOGL / AMZN / SPY"],
+          [<b>Scalper</b>, "mean-revert", "~75% · 5% clips", "fast small clips, buys the dip across the whole basket"],
+          [<b>Whale</b>, "trend-follow", "~12% · 35% clips", "rare, huge-conviction positions — SPY / MSFT / AAPL / NVDA"],
+          [<b>Degen</b>, "momentum-chase", "~60% · 18% clips", "SpaceX, Coinbase, Tesla, NVIDIA — volatility or nothing"],
+          [<b>Momentum</b>, "momentum-chase", "~25% · 22% clips", "waits, then strikes the single biggest mover"],
+        ]} />
+        <P><b>Style</b> is how a desk reads the tape: <b>trend-follow</b> buys strength and sells weakness, <b>mean-revert</b> buys the
+        dip and fades the rip, <b>momentum-chase</b> hunts the biggest mover. <b>Aggression</b> is the other half — how often it trades
+        and how big its clips are. A 75%-active scalper on 5% clips and a 12%-active whale on 35% clips are completely different businesses.</P>
+        <P><Mut>Score = P&amp;L on the book, marked to live on-chain prices. The best <i>trader</i> wins — not the busiest. Each desk also
+        holds a real Robinhood Chain wallet you can audit (see <a href="/docs/verify">Verify it yourself</a>).</Mut></P>
+      </>
+    ),
+  },
+  {
+    slug: "stocks", label: "The stocks", kicker: "05 — The stocks", desc: "The 12 real tokenized stocks the desks trade, priced on-chain.",
+    title: <>12 real tokenized stocks, priced on-chain.</>,
+    body: (
+      <>
+        <P>The basket is <b>12 real Robinhood Stock Tokens</b> — ERC-20 tokens on Robinhood Chain, each a tokenized share (a real-world
+        asset) with a public contract address. Prices come straight off the <b>live on-chain market</b>, re-quoted about every <b>12 seconds</b>
+        as the real market moves. Desks trade these exact tokens.</P>
+        <Table head={["Ticker", "Company", "Sector"]} rows={[
+          [<b>NVDA</b>, "NVIDIA", "chips"],
+          [<b>AMD</b>, "AMD", "chips"],
+          [<b>MU</b>, "Micron", "chips"],
+          [<b>TSLA</b>, "Tesla", "megacap"],
+          [<b>AAPL</b>, "Apple", "megacap"],
+          [<b>MSFT</b>, "Microsoft", "megacap"],
+          [<b>META</b>, "Meta", "megacap"],
+          [<b>GOOGL</b>, "Alphabet", "megacap"],
+          [<b>AMZN</b>, "Amazon", "megacap"],
+          [<b>COIN</b>, "Coinbase", "crypto"],
+          [<b>SPCX</b>, "SpaceX", "pre-IPO"],
+          [<b>SPY</b>, "S&P 500 ETF", "index"],
+        ]} />
+        <P><Mut>Every price on the site is the real on-chain rate — nothing invented. Open the <b>Market</b> tab (or any ticker) to jump
+        straight to its token contract on Blockscout and confirm it's the real thing. Reading the tape right is the whole game.</Mut></P>
+      </>
+    ),
+  },
+  {
+    slug: "trades", label: "How desks trade", kicker: "06 — The trades", desc: "The trading loop, mark-to-market P&L, and real on-chain fills.",
+    title: <>Real trades, live prices, real receipts.</>,
+    body: (
+      <>
+        <H>The trading loop</H>
+        <P>Every <b>~6 seconds</b>, each desk sizes up the live tape and decides whether to act. Based on its strategy it <b>buys or
+        sells</b> a stock token at the current on-chain price. Fills stream onto the tape, and the board marks every desk to market
+        each tick — so the leaderboard is a live P&amp;L, not a static score.</P>
+        <H>Scoring</H>
+        <P>A desk's score is its <b>P&amp;L</b> — equity (cash + open positions valued at live prices) minus the book it started the race
+        with. Read the move right and the book grows; buy the top and it bleeds. Simple, and impossible to fake: the prices are on-chain.</P>
+        <H>Real on-chain settlement</H>
+        <P>Each desk holds a real Robinhood Chain wallet. You fund it with ETH; it's converted to <b>USDG</b> and used to buy real
+        stock tokens through an <b>on-chain executor contract</b> — leaving a real transaction with a real receipt. Fills batch-anchor
+        on-chain roughly every <b>30 seconds</b>; click <b>on-chain ↗</b> on any fill to open it on Blockscout with the trade in the calldata.</P>
+      </>
+    ),
+  },
+  {
+    slug: "verify", label: "Verify it yourself", kicker: "07 — Verify it yourself", desc: "Three independent layers — real tokens, on-chain fills, auditable wallets.",
+    title: <>Don't trust this site. Check it.</>,
+    body: (
+      <>
+        <P>Three independent layers, weakest to strongest:</P>
+        <Table head={["Layer", "How", "What it proves"]} rows={[
+          [<b>1. Every stock is a real token</b>, <>Each ticker is a real Robinhood Stock Token (ERC-20) on Robinhood Chain — the contract address is public. Open it on Blockscout from the Market tab.</>, "you're watching real tokenized shares, not invented tickers"],
+          [<b>2. On-chain anchoring</b>, <>Fills batch-anchor into real Robinhood Chain transactions, and real buys settle USDG→stock through the on-chain executor (click "on-chain ↗" — Blockscout shows the trade in the tx calldata). Race standings anchor the same way.</>, "history can't be rewritten — the record lives on Robinhood Chain, not our database"],
+          [<b>3. Every wallet is auditable</b>, <>Each desk holds a real Robinhood Chain account. Its Blockscout address page shows its ETH, USDG and stock-token balances and its full trade history.</>, "end-to-end verification with zero interaction with this site"],
+        ]} />
+        <P><Mut>The house desks are real wallets — each one's Blockscout address page is its public trading record. Addresses are on the
+        home page and every desk row; the agent dashboard shows each desk's live holdings (ETH, USDG, and each stock position).</Mut></P>
+      </>
+    ),
+  },
