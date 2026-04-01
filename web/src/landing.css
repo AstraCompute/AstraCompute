@@ -1,0 +1,85 @@
+/* ============================================================
+   Hedge Bots landing — light, editorial, alive.
+   Paper, ink type, one Robinhood-green thread, live color moments.
+   All classes .ld- scoped; body.ld-light flips the page light.
+   ============================================================ */
+
+body.ld-light {
+  background: #ffffff;
+  color: #3f493f;
+}
+body.ld-light ::selection { background: #d6f5d9; color: #121a12; }
+
+.ld-root {
+  --paper: #ffffff;
+  --ink: #121a12;
+  --sub: #525f52;
+  --faint: #849184;
+  --line: rgba(18, 26, 18, 0.1);
+  --line-strong: rgba(18, 26, 18, 0.2);
+
+  /* the Robinhood-green thread — --violet keeps its name as the ACTION token
+     so every .ld- rule keeps working; it now resolves to the deep green. */
+  --rh: #00c805;
+  --violet: #008a36;
+  --violet-soft: #e4f6e6;
+  --emerald: #059669;
+  --emerald-soft: #e7f7f0;
+  --amber: #d97706;
+  --amber-soft: #fdf3e3;
+  --rose: #dc2626;
+  --rose-soft: #fdecec;
+  --blue: #2a78d6;
+
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-serif: "Instrument Serif", Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  font-family: var(--font-display);
+  color: var(--sub);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.ld-container { max-width: 1140px; margin: 0 auto; padding: 0 28px; }
+
+/* ------------------------------------------------------------- nav */
+.ld-nav {
+  position: sticky; top: 0; z-index: 40;
+  backdrop-filter: blur(14px);
+  background: rgba(255, 255, 255, 0.85);
+  border-bottom: 1px solid var(--line);
+}
+.ld-nav-inner {
+  max-width: 1140px; margin: 0 auto; padding: 0 28px;
+  display: flex; align-items: center; gap: 28px; height: 64px;
+}
+.ld-wordmark {
+  font-family: var(--font-display); font-weight: 700; font-size: 17px;
+  letter-spacing: 0.2em; color: var(--ink); text-decoration: none;
+  white-space: nowrap; display: inline-flex; align-items: center;
+}
+.ld-wordmark .tick { color: var(--rh); }
+.ld-nav a.ld-link { color: var(--sub); text-decoration: none; font-size: 13.5px; transition: color 130ms; white-space: nowrap; }
+.ld-nav a.ld-link:hover { color: var(--ink); }
+.ld-nav .spacer { flex: 1; }
+
+.ld-cta {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font-family: var(--font-display); font-size: 14px; font-weight: 700;
+  color: #06210c; background: var(--rh);
+  padding: 12px 24px; border-radius: 999px; text-decoration: none;
+  white-space: nowrap; line-height: 1;
+  box-shadow: 0 6px 18px rgba(0, 200, 5, 0.28);
+  transition: background 150ms, transform 150ms, box-shadow 150ms;
+}
+.ld-cta:hover { background: #00e006; transform: translateY(-1px); box-shadow: 0 10px 26px rgba(0, 200, 5, 0.36); }
+.ld-cta.ghost {
+  color: var(--ink); background: transparent; box-shadow: none;
+  border: 1.5px solid var(--line-strong);
+}
+.ld-cta.ghost:hover { border-color: var(--ink); background: rgba(22,21,29,0.03); }
+.ld-cta.small { padding: 9px 18px; font-size: 13px; }
+
+/* ------------------------------------------------------------- hero */
+.ld-hero { position: relative; padding: 88px 0 64px; overflow: visible; }
