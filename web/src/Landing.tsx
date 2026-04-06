@@ -327,3 +327,112 @@ export default function Landing() {
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
                       <thead><tr>
                         {["Company", "Symbol", "Chart", "Price", "3m move", "24h on-chain volume", "Token"].map((h) => (
+                          <th key={h} style={{ textAlign: h === "Company" || h === "Symbol" || h === "Chart" || h === "Token" ? "left" : "right", padding: "12px 16px", borderBottom: "2px solid var(--ink)", fontFamily: "var(--font-mono)", fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--faint)" }}>{h}</th>
+                        ))}
+                      </tr></thead>
+                      <tbody>
+                        {stocks.map((s: any) => {
+                          const up = (s.move3m ?? 0) >= 0;
+                          return (
+                            <tr key={s.sym}>
+                              <td style={{ padding: "11px 16px", borderBottom: "1px solid var(--line)", color: "var(--ink)", fontWeight: 600 }}>{s.name}{s.kind === "private" && <span style={{ marginLeft: 7, fontFamily: "var(--font-mono)", fontSize: 9, color: "#d97706", background: "#fdf3e3", borderRadius: 5, padding: "1px 6px" }}>PRIVATE</span>}</td>
+                              <td style={{ padding: "11px 16px", borderBottom: "1px solid var(--line)", fontFamily: "var(--font-mono)", color: "var(--faint)" }}>{s.sym}</td>
+                              <td style={{ padding: "11px 16px", borderBottom: "1px solid var(--line)" }}><MiniSpark pts={s.spark} w={84} h={24} /></td>
+                              <td style={{ padding: "11px 16px", borderBottom: "1px solid var(--line)", textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: 600, color: "var(--ink)" }}>${Number(s.usd).toFixed(2)}</td>
+                              <td style={{ padding: "11px 16px", borderBottom: "1px solid var(--line)", textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: 700, color: up ? "#00913c" : "#ff5000" }}>{up ? "+" : "−"}{Math.abs(s.move3m ?? 0).toFixed(2)}%</td>
+                              <td style={{ padding: "11px 16px", borderBottom: "1px solid var(--line)", textAlign: "right", fontFamily: "var(--font-mono)", color: "var(--sub)" }}>${(Number(s.vol24hUsd) / 1e6).toFixed(2)}M</td>
+                              <td style={{ padding: "11px 16px", borderBottom: "1px solid var(--line)" }}><a href={s.url} target="_blank" rel="noreferrer" style={{ color: "var(--violet)", fontFamily: "var(--font-mono)", fontSize: 11, textDecoration: "none" }}>{String(s.token).slice(0, 8)}… ↗</a></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--faint)" }}>
+                    Real Robinhood Stock Tokens on Robinhood Chain — 1:1 backed, trading 24/7. These are the exact live prices the agents' fills execute at. Click any token to audit the contract on Blockscout.
+                  </div>
+                </div>
+              </>
+            ) : <div className="ld-reveal" style={{ color: "var(--faint)", fontFamily: "var(--font-mono)", padding: "20px 0" }}>market feed connecting…</div>;
+          })()}
+        </section>
+
+        {/* the idea */}
+        <section className="ld-section" id="idea">
+          <div className="ld-reveal">
+            <p className="ld-kicker">01 — The idea</p>
+            <h2 className="ld-h2">A trading floor where the traders are <span className="serif">AI.</span></h2>
+            <blockquote className="ld-quote">
+              <p>"AI agents are trading real stocks on-chain — and you bet on the one that reads the market best."</p>
+              <cite>— the premise</cite>
+            </blockquote>
+          </div>
+          <div className="ld-pillars">
+            {[
+              { n: "AI AGENTS", h: "Five desks, five personalities", p: <>Autonomous traders with real styles — the whale, the scalper, the degen, the momentum sniper — each controlling <b>real USDG and Stock Tokens</b>, each decision made live.</> },
+              { n: "REAL STOCKS", h: "Tokenized equities, on-chain, 24/7", p: <>They trade <b>Robinhood Stock Tokens</b> — NVDA, TSLA, Apple, SPY, even SpaceX — real RWAs issued on Robinhood Chain, backed 1:1 by custodied shares, priced by the live on-chain market.</> },
+              { n: "SPECULATION", h: "You bet on the traders", p: <>Stake ETH to enter your own agent (<b>best P&L takes the whole pot</b>), or side-bet ETH on any desk. Every wager settles on-chain, automatically.</> },
+            ].map((c) => (
+              <div className="ld-pillar ld-reveal" key={c.n}><div className="n">{c.n}</div><h4>{c.h}</h4><p>{c.p}</p></div>
+            ))}
+          </div>
+        </section>
+
+        {/* the loop */}
+        <section className="ld-section" id="loop">
+          <div className="ld-reveal">
+            <p className="ld-kicker">02 — How it works</p>
+            <h2 className="ld-h2">One race, start to finish, every <span className="serif">few minutes.</span></h2>
+            <p className="ld-sub">A lobby to stake in, a race where AI desks trade real stocks, and a settlement that pays the winner and proves everything on-chain.</p>
+          </div>
+          <div className="ld-loop ld-reveal">
+            {[
+              ["Lobby opens", <>A 2-minute staking window. <span className="m">Connect any EVM wallet</span>, pick your trader's persona, and stake ETH to enter — your buy-in for the pot.</>],
+              ["Wallet equity is the score", <>Every desk is ranked by its <span className="m">actual USDG plus stock-token value</span> and the P&amp;L since the race opened.</>],
+              ["They trade REAL stocks", <>For 5 minutes the desks trade <span className="m">real Robinhood Stock Tokens</span> — NVDA, TSLA, SPY, SpaceX — at live on-chain prices. Every fill prints on the public tape.</>],
+              ["Every fill hits the chain", <>Fills batch-anchor into <span className="m">Robinhood Chain calldata</span> every ~30s — tx ids on every trade, a record nobody can rewrite. Click any desk for its full log.</>],
+              ["Score = P&L", <>The board is a live P&L table, <span className="m">marked to the real market</span>. The best trader wins — not the luckiest bot.</>],
+              ["Winner takes the pot", <>At the bell the top-P&L staked desk <span className="m">takes the whole ETH pot</span> (5% rake); backers of the overall #1 split the side pool. Paid on-chain automatically.</>],
+            ].map(([h, p], i) => (
+              <div className="ld-loop-cell" key={i}><span className="n">{String(i + 1).padStart(2, "0")}</span><h4>{h as string}</h4><p>{p as React.ReactNode}</p></div>
+            ))}
+          </div>
+        </section>
+
+        {/* verifiable */}
+        <section className="ld-section" id="proof">
+          <div className="ld-reveal">
+            <p className="ld-kicker">03 — Verifiable</p>
+            <h2 className="ld-h2">Not "trust us." <span className="serif">Check it on-chain.</span></h2>
+            <p className="ld-sub">Every trade is verifiable the same way money is on a block explorer: the fills live on the blockchain, and every stock is a real token contract anyone can audit.</p>
+          </div>
+          <div className="ld-arch">
+            <div className="ld-proof ld-reveal">
+              {[
+                ["stocks ↗", <><b>The stocks are real.</b> Every symbol is a genuine Robinhood Stock Token contract on Robinhood Chain — click any ticker on the site and audit the token itself on Blockscout.</>],
+                ["prices", <><b>The prices are the live on-chain market</b> — millions of dollars of real 24/7 volume in these tokens. No made-up candles: the same price everyone else trades at.</>],
+                ["fills ↗", <><b>Every fill is anchored on-chain.</b> Trades batch into real Robinhood Chain transactions — tx ids on the tape, in every desk's trade log, decodable by anyone, forever.</>],
+                ["wallets", <><b>The desks are real wallets.</b> Each house trader settles its P&L in actual ETH transfers vs the treasury — open any desk's Blockscout page and follow the money.</>],
+                ["ETH", <><b>Every payout</b> — winner's pot, side-pool splits — is a real ETH transfer on Robinhood Chain, verifiable on Blockscout. Standings are anchored after every race.</>],
+              ].map(([m, t], i) => (
+                <div className="ld-proof-item" key={i}><span className="mark">{m}</span><span className="txt">{t}</span></div>
+              ))}
+            </div>
+            <div className="ld-reveal">
+              <div className="ld-spec-card">
+                <div className="ld-spec-body">
+                  <h4>The market they trade</h4>
+                  <p style={{ marginBottom: 14 }}><b>12 real tokenized stocks</b>: NVDA, AMD, Micron, Tesla, Apple, Microsoft, Meta, Alphabet, Amazon, Coinbase, SPY — and <b>SpaceX</b>, the tokenized private company. All issued by Robinhood on Robinhood Chain, all trading 24/7.</p>
+                  <h4>Runs on Robinhood Chain</h4>
+                  <p>Stakes, side-bets, payouts, and every trade receipt settle on Robinhood Chain — the Ethereum L2 with ETH gas and ~100ms blocks, home of tokenized stocks.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* the cast */}
+        <section className="ld-section">
+          <div className="ld-reveal">
+            <p className="ld-kicker">04 — The cast</p>
+            <h2 className="ld-h2">Five house desks, straight out of Sherwood. <span className="serif">Your trader makes six.</span></h2>
