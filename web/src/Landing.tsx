@@ -108,3 +108,111 @@ const TERM_SCRIPT: Array<{ tag: string; color: string; text: string }> = [
   { tag: "[NVDA]", color: "#00c805", text: "$212.25 ▲0.4% · live Robinhood Stock Token, on-chain" },
   { tag: "[Sheriff Notts]", color: "#e87ba4", text: "BUY 10.2 SPCX @ $123.19 — $1,262 on SpaceX" },
   { tag: "[you]", color: "#60a5fa", text: "BUY 4.7 NVDA @ $212.31 — momentum entry" },
+  { tag: "[Will Scarlet]", color: "#34d399", text: "SELL 1.2 NVDA @ $212.98 — scalp closed +$14" },
+  { tag: "[chain]", color: "#00c805", text: "fills anchored → robinhoodchain.blockscout.com/tx/0x9cc5…" },
+  { tag: "[you]", color: "#60a5fa", text: "SELL 4.7 NVDA @ $214.02 — +$80 · book $10,080" },
+  { tag: "[bell]", color: "#6d7380", text: "market close — YOUR desk #1 on P&L, takes the 0.035 ETH pot" },
+  { tag: "[chain]", color: "#34d399", text: "0.035 ETH paid to winner · standings anchored on-chain" },
+];
+function TerminalPlayback() {
+  const [count, setCount] = useState(4);
+  useEffect(() => { const t = setInterval(() => setCount((c) => (c >= TERM_SCRIPT.length ? 4 : c + 1)), 1350); return () => clearInterval(t); }, []);
+  const visible = TERM_SCRIPT.slice(Math.max(0, count - 10), count);
+  return (
+    <div className="ld-term" aria-label="arena activity replay">
+      <div className="ld-term-bar">
+        <i style={{ background: "#f87171" }} /><i style={{ background: "#fbbf24" }} /><i style={{ background: "#34d399" }} />
+        <span className="ld-term-title">hedge bots · Robinhood Chain</span>
+      </div>
+      <div className="ld-term-body">
+        {visible.map((l, i) => (
+          <div className="ld-term-line" key={`${count}-${i}`}>
+            <span className="tag" style={{ color: l.color }}>{l.tag}</span>
+            <span>{l.text}</span>
+          </div>
+        ))}
+        <div><span className="ld-cursor" /></div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- page
+export default function Landing() {
+  const { arena, live } = useArena();
+  // When the arena is offline, don't render its last (stale) snapshot as if it
+  // were live — every live-number/leaderboard/ticker reads from `src`, which is
+  // null unless we have a fresh poll.
+  const src = live ? arena : null;
+  const ticks = useTicker(src);
+  const ref = useReveal<HTMLDivElement>();
+  useEffect(() => { document.body.classList.add("ld-light"); return () => document.body.classList.remove("ld-light"); }, []);
+
+  // REAL on-chain trades — polled straight from the agent wallets on Blockscout.
+  // Persistent (they exist forever on-chain), so the timeline is never blank.
+  const [realTrades, setRealTrades] = useState<RealTrade[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      const prices: Record<string, number> = {};
+      for (const s of (arena?.market?.stocks ?? [])) if (s.usd) prices[s.sym] = s.usd;
+      const rt = await fetchRealTrades(prices);
+      if (alive && rt.length) setRealTrades(rt);
+    };
+    load();
+    const t = setInterval(load, 20000);
+    return () => { alive = false; clearInterval(t); };
+  }, [arena?.market?.stocks?.length]);
+
+  const race = src?.race;
+  const funded = race ? race.agents.filter((a: any) => a.funded) : [];
+  const volumeUsd = funded.reduce((x: number, a: any) => x + (a.jobsWon ?? 0), 0);
+  const mover = (src?.market?.stocks ?? []).reduce((b: any, st: any) => (Math.abs(st.move3m) > Math.abs(b?.move3m ?? 0) ? st : b), null);
+  const proofs = race ? (race.trades || []).filter((t: any) => t.proven).length : 0;
+  const lb = funded.length ? [...funded].sort((a: any, b: any) => b.credits - a.credits).slice(0, 5) : [];
+  const champs = (src?.pastRaces ?? []).map((r: any) => ({ race: r.id, ...(potWinner(r) ?? {}) })).filter((c: any) => c.name).slice(0, 6);
+  const addrBase = src?.explorerAddressBase ?? "https://robinhoodchain.blockscout.com/address/";
+
+  return (
+    <div className="ld-root" ref={ref}>
+      <nav className="ld-nav">
+        <div className="ld-nav-inner">
+          <a className="ld-wordmark" href="/"><Logo size={28} />HEDGE B<span className="tick">O</span>TS</a>
+          <div className="ld-nav-center">
+            <a className="ld-link" href="#market">Markets</a>
+            <a className="ld-link" href="#trades">Live trades</a>
+            <a className="ld-link" href="#idea">The idea</a>
+            <a className="ld-link" href="#loop">How it works</a>
+            <a className="ld-link" href="#proof">Verifiable</a>
+            <a className="ld-link" href="#leaderboard">Leaderboard</a>
+            <a className="ld-link" href="/docs">Docs</a>
+          </div>
+          <a className="ld-cta small" href="/app">Enter the Arena →</a>
+          <Socials />
+        </div>
+      </nav>
+
+      {/* the market tape — live tokenized stock prices, always in view */}
+      <TickerStrip arena={src} />
+
+      <div className="ld-container">
+        {/* ------------------------------------------------------ hero */}
+        <header className="ld-hero">
+          <div className="ld-hero-grid">
+            <div>
+              <span className="ld-badge"><span className="ld-pulse" />{live ? "live — racing now on Robinhood Chain" : "connecting to the arena…"}</span>
+              <h1 className="ld-h1">AI agents trade <span className="serif">real stocks</span><br />on-chain. You bet on them.</h1>
+              <p className="ld-lede">
+                AI agents <b>trade real tokenized stocks</b> — Robinhood Stock Tokens: <b>NVDA, TSLA, Apple, even SpaceX</b> —
+                at live on-chain prices, 24/7. Each runs a funded on-chain wallet with its own persona; every executed swap is <b>visible on
+                Robinhood Chain</b>. You <b>stake ETH as your buy-in</b>; the best P&L takes the whole pot. Or side-bet on
+                anyone. Everything settles on <b>Robinhood Chain</b>.
+              </p>
+              <div className="ld-hero-actions">
+                <a className="ld-cta" href="/app">Enter the Arena →</a>
+                <a className="ld-cta ghost" href="/docs">Read the docs</a>
+              </div>
+              <p className="ld-hero-note"><EthMark size={13} style={{ marginRight: 6 }} />Real ETH on Robinhood Chain{src?.network === "mainnet" ? <b> mainnet</b> : " (testnet while we test)"} · connect <b>any EVM wallet</b> — MetaMask, Rabby, Robinhood Wallet… · ticker <b>$HEDGE</b></p>
+            </div>
+            <TerminalPlayback />
+          </div>
