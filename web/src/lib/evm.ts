@@ -84,3 +84,45 @@ export async function ensureChain(provider: Eip1193Provider, chain: ArenaChain):
         }],
       });
     } else throw e;
+  }
+}
+
+/** Wallet ETH balance via the public RPC (raw JSON-RPC — no signer needed). */
+export async function getBalanceEth(rpc: string, address: string): Promise<number> {
+  const res = await fetch(rpc, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getBalance", params: [address, "latest"] }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(String(data.error?.message ?? "rpc error"));
+  return Number(formatEther(BigInt(data.result)));
+}
+
+/** Pay an entry / side-bet: ensure the right chain, then a plain ETH transfer
+ *  to the deposit address. Resolves with the tx hash once it's mined. */
+export async function payEntry(
+  chain: ArenaChain,
+  provider: Eip1193Provider,
+  from: string,
+  toAddress: string,
+  weiHex: string
+): Promise<string> {
+  await ensureChain(provider, chain);
+  const hash: string = await provider.request({
+    method: "eth_sendTransaction",
+    params: [{ from, to: toAddress, value: weiHex }],
+  });
+  // wait for the receipt on the public RPC (~100ms blocks — this is quick)
+  for (let i = 0; i < 60; i++) {
+    try {
+      const res = await fetch(chain.rpc, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [hash] }),
+      });
+      const data = await res.json();
+      if (data.result) return hash;
+    } catch { /* keep polling */ }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return hash; // sent; the arena's deposit watcher will still catch it
+}
