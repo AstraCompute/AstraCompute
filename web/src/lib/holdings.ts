@@ -27,3 +27,30 @@ export const STOCKS: Record<string, string> = {
 export interface Holdings {
   eth: number;
   usdg: number;
+  stocks: Array<{ sym: string; qty: number; px: number; valueUsd: number; token: string }>;
+  stocksUsd: number;
+  portfolioUsd: number; // USDG + stock value — the real trading equity
+}
+
+export async function fetchHoldings(address: string, prices: Record<string, number>): Promise<Holdings> {
+  const syms = Object.keys(STOCKS);
+  const [ethWei, usdgRaw, ...stockRaws] = await Promise.all([
+    provider.getBalance(address).catch(() => 0n),
+    new Contract(USDG, BAL, provider).balanceOf(address).catch(() => 0n),
+    ...syms.map((s) => new Contract(STOCKS[s], BAL, provider).balanceOf(address).catch(() => 0n)),
+  ]);
+  const eth = Number(formatEther(ethWei));
+  const usdg = Number(formatUnits(usdgRaw, 6));
+  const stocks: Holdings["stocks"] = [];
+  stockRaws.forEach((raw: bigint, i: number) => {
+    const qty = Number(formatUnits(raw, 18));
+    if (qty > 1e-9) {
+      const sym = syms[i];
+      const px = prices[sym] ?? 0;
+      stocks.push({ sym, qty: Math.round(qty * 1e6) / 1e6, px, valueUsd: Math.round(qty * px * 100) / 100, token: STOCKS[sym] });
+    }
+  });
+  stocks.sort((a, b) => b.valueUsd - a.valueUsd);
+  const stocksUsd = Math.round(stocks.reduce((s, x) => s + x.valueUsd, 0) * 100) / 100;
+  return { eth, usdg, stocks, stocksUsd, portfolioUsd: Math.round((usdg + stocksUsd) * 100) / 100 };
+}
