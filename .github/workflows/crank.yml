@@ -1,0 +1,23 @@
+name: Flywheel crank
+
+# Turns the keeper every 10 minutes: collect fees → sweep → feed (buy & burn $PAR).
+# Everything the endpoint calls is permissionless on-chain; this only pays gas.
+# Vercel's daily cron and visitor pings remain as backups.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  crank:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Hit the keeper
+        run: |
+          code=$(curl -s -o /tmp/crank.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://www.parlaunch.fun/api/crank")
+          echo "HTTP $code"
+          cat /tmp/crank.json
+          test "$code" = "200"
