@@ -768,3 +768,131 @@
     ],
     "stateMutability": "view",
     "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "minProviderStake",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "owner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "providerCount",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "name",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "region",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "gpuModel",
+        "type": "string"
+      },
+      {
+        "internalType": "uint32",
+        "name": "units",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "pricePerUnitHour",
+        "type": "uint256"
+      }
+    ],
+    "name": "registerProvider",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "providerId",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "registry",
+    "outputs": [
+      {
+        "internalType": "contract IAgentRegistryMin",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "renounceOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "providerId",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint32",
+        "name": "units",
+        "type": "uint32"
+      },
+      {
+        "internalType": "uint32",
+        "name": "durationSecs",
+        "type": "uint32"
+      }
+    ],
+    "name": "rent",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "rentalId",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
